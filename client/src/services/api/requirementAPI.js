@@ -236,6 +236,27 @@ export const requirementAPI = {
       }
     ),
 
+  /**
+   * In-run HITL resume (clarify | edit_draft | wbs_confirm). Not Gate 1/2 stamp.
+   * wbs_confirm + resume.action=confirm pins WBS baseline then resumes HOW.
+   * wbs_confirm + resume.action=save_edit records Pack change event only.
+   */
+  resumeInRunHitl: (organizationId, packId, { runId, kind, resume = {}, phase = 'how' }) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      {
+        phase,
+        action: 'resume_in_run',
+        runId,
+        kind,
+        resume,
+      },
+      {
+        ...withOrg(organizationId),
+        timeout: 60000,
+      }
+    ),
+
   /** Gate2 — confirm phase_how (phase-only; no job id). Optional action for PM→PO lane. */
   confirmPhaseGate2: (organizationId, packId, body = {}) =>
     apiClient.post(

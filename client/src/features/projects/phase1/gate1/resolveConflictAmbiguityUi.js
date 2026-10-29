@@ -1,16 +1,12 @@
 /**
  * Gate1 UI — Requirement Integrity Gate onto sections + rows (RULE-RIG).
  * Mirrors project-service assertGate1ConflictAmbiguityOrOverride hard-blocking.
+ * SoT: phaseRuns.phase_what.*Gate (pack understanding blobs retired — srsProposal only).
  */
 
 import { normalizeIntegrityBlockKind } from './integrityGateLabels.js';
 
 const MAX_BLOCKING_UI = 40;
-const HARD_REL_CODES = new Set([
-  'REL_CIRCULAR',
-  'REL_TARGET_MISSING',
-  'REL_MISSING_ENDPOINT',
-]);
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -33,30 +29,8 @@ function isHardBlockingItem(item) {
 
 /**
  * @param {object|null|undefined} pack
- * @param {object|null|undefined} g4
  */
-export function resolveConflictAmbiguityFromPack(pack, g4 = null) {
-  const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
-  const g4Understanding =
-    g4 || analyses.frUnderstanding || analyses.g4Understanding || null;
-  const frPath = analyses.frUnderstanding
-    ? 'analyses.frUnderstanding'
-    : 'analyses.g4Understanding';
-
-  const fromG4 =
-    g4Understanding?.requirementIntegrityGate ||
-    g4Understanding?.conflictAmbiguityGate ||
-    g4Understanding?.meta?.requirementIntegrityGate ||
-    g4Understanding?.meta?.conflictAmbiguityGate;
-  if (fromG4 && typeof fromG4 === 'object' && typeof fromG4.passed === 'boolean') {
-    return normalizeGate(
-      fromG4,
-      g4Understanding?.requirementIntegrityGate
-        ? `${frPath}.requirementIntegrityGate`
-        : `${frPath}.conflictAmbiguityGate`
-    );
-  }
-
+export function resolveConflictAmbiguityFromPack(pack) {
   const phaseWhat =
     pack?.aiAnalysis?.phaseRuns?.phase_what || pack?.phaseRuns?.phase_what || {};
   const fromPhase =
@@ -70,38 +44,18 @@ export function resolveConflictAmbiguityFromPack(pack, g4 = null) {
     );
   }
 
-  if (g4Understanding && typeof g4Understanding === 'object') {
-    const ambiguities = asArray(g4Understanding.ambiguities).filter(
-      (a) => String(a?.kind || '') === 'incomplete_fields' || !a?.kind
-    );
-    const rejected = asArray(g4Understanding.rejectedRelationships);
-    const conflicts = rejected.filter((r) =>
-      HARD_REL_CODES.has(String(r?.validationError || r?.code || ''))
-    );
-    if (ambiguities.length || conflicts.length) {
-      const blocking = [
-        ...ambiguities.map((a) => ({
-          ...a,
-          blockKind: 'data_integrity',
-          kind: a.kind || 'incomplete_fields',
-        })),
-        ...conflicts.map((c) => ({
-          ...c,
-          blockKind: 'relationship_integrity',
-          code: c.validationError || c.code,
-        })),
-      ];
-      return normalizeGate(
-        { passed: false, blocking, ambiguities, conflicts, warnings: [] },
-        'derived_g4_arrays'
-      );
-    }
-    if (asArray(g4Understanding.requirements).length || g4Understanding.meta) {
-      return normalizeGate(
-        { passed: true, blocking: [], ambiguities: [], conflicts: [], warnings: [] },
-        'derived_g4_clean'
-      );
-    }
+  const proposal =
+    pack?.aiAnalysis?.analyses?.srsProposal || pack?.analyses?.srsProposal || null;
+  const fromProposal =
+    proposal?.generated?.functionalRequirements?.meta?.requirementIntegrityGate ||
+    proposal?.meta?.requirementIntegrityGate ||
+    null;
+  if (
+    fromProposal &&
+    typeof fromProposal === 'object' &&
+    typeof fromProposal.passed === 'boolean'
+  ) {
+    return normalizeGate(fromProposal, 'analyses.srsProposal.requirementIntegrityGate');
   }
 
   return null;
@@ -316,9 +270,9 @@ export function filterBlockingIssuesForCurrentValues(issues, row, decision = nul
 /**
  * Annotate Gate1 bundle rows/sections with integrity UI metadata.
  */
-export function attachConflictAmbiguityToGate1Bundle(bundle, pack, g4 = null) {
+export function attachConflictAmbiguityToGate1Bundle(bundle, pack) {
   const base = bundle && typeof bundle === 'object' ? bundle : {};
-  const gate = resolveConflictAmbiguityFromPack(pack, g4);
+  const gate = resolveConflictAmbiguityFromPack(pack);
   if (!gate || gate.passed || !gate.blocking.length) {
     return {
       ...base,

@@ -38,10 +38,7 @@ const {
 const { runMetaGateNode } = require('./analysisEngineNodes');
 const { WHAT_SECTION_TOOLS, WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
 const { CANONICAL_ORDER: WHAT_CANONICAL_ORDER } = require('./whatToolDag');
-const {
-  buildWhatSectionToolSubgraph,
-  buildWhatFrToolSubgraph,
-} = require('./toolSubgraphAdapter');
+const { buildWhatSectionToolSubgraph } = require('./toolSubgraphAdapter');
 const {
   PLAIN_TOOLS_NODE,
   listPlainToolNames,
@@ -56,12 +53,6 @@ const {
   STOP_INCOMPLETE,
   envMaxEnrich,
 } = require('./artifactCompleteness');
-
-/**
- * Phase node for FR understanding StateGraph (RULE-LG-FR).
- * Must not equal channel `frUnderstanding` (LangGraph forbids node/channel name clash).
- */
-const FR_UNDERSTANDING_NODE = 'runFrUnderstanding';
 
 const { preferRight } = require('./sharedPhaseChannels');
 
@@ -274,7 +265,7 @@ function buildEmitPayload(state, { ready }) {
  */
 function buildWhatPhaseGraph(hooks = {}) {
   const onProgress = hooks.onProgress || null;
-  // G15 projection only when explicitly enabled — LG checkpointer is resume SoT
+  // checkpoint projection only when explicitly enabled — LG checkpointer is resume SoT
   const onCheckpoint =
     hooks.asSubgraph || hooks.checkpointer == null
       ? hooks.onCheckpoint || null
@@ -400,28 +391,50 @@ function buildWhatPhaseGraph(hooks = {}) {
     WHAT_FR_TOOL,
   ]);
 
-  // RULE-LG-FR: FR SoT = frUnderstanding subgraph (not WhatFrTool invokeTool).
-  const frNode =
-    typeof hooks.frUnderstandingNode === 'function' || hooks.frUnderstandingNode
-      ? hooks.frUnderstandingNode
-      : buildWhatFrToolSubgraph({
-          onProgress: onProgress
-            ? async (evt) => {
-                await onProgress({
-                  ...evt,
-                  phase: 'what',
-                  node: evt.substep || evt.node || FR_UNDERSTANDING_NODE,
-                });
-              }
-            : null,
-        });
-  graph.addNode(FR_UNDERSTANDING_NODE, frNode);
-
-  // Pattern B section subgraphs only — plain tools use Hybrid A plainTools (ToolNode).
+  // Pattern B: all WHAT sections including WhatFrTool (engine fr → frSectionHooks).
+  // Override hook still accepted for tests: hooks.frSectionNode / hooks.frUnderstandingNode.
   for (const toolName of whatSectionNames) {
     const engineId = sectionByTool[toolName];
     if (!engineId) continue;
+    if (toolName === WHAT_FR_TOOL || engineId === 'fr') {
+      const frNode =
+        typeof hooks.frSectionNode === 'function' || hooks.frSectionNode
+          ? hooks.frSectionNode
+          : typeof hooks.frUnderstandingNode === 'function' || hooks.frUnderstandingNode
+            ? hooks.frUnderstandingNode
+            : buildWhatSectionToolSubgraph('fr', {
+                onProgress: onProgress
+                  ? async (evt) => {
+                      await onProgress({
+                        ...evt,
+                        phase: 'what',
+                        node: evt.substep || evt.node || WHAT_FR_TOOL,
+                      });
+                    }
+                  : null,
+              });
+      graph.addNode(WHAT_FR_TOOL, frNode);
+      continue;
+    }
     graph.addNode(toolName, buildWhatSectionToolSubgraph(engineId));
+  }
+  // Ensure WhatFrTool exists even if catalog order omitted (compat).
+  if (!whatSectionNames.has(WHAT_FR_TOOL)) {
+    const frNode =
+      typeof hooks.frSectionNode === 'function' || hooks.frSectionNode
+        ? hooks.frSectionNode
+        : buildWhatSectionToolSubgraph('fr', {
+            onProgress: onProgress
+              ? async (evt) => {
+                  await onProgress({
+                    ...evt,
+                    phase: 'what',
+                    node: evt.substep || evt.node || WHAT_FR_TOOL,
+                  });
+                }
+              : null,
+          });
+    graph.addNode(WHAT_FR_TOOL, frNode);
   }
 
   graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'what', onProgress }));
@@ -436,16 +449,12 @@ function buildWhatPhaseGraph(hooks = {}) {
     for (const call of calls) {
       const toolName = call.name || call.toolName;
       if (!toolName || !whatKnownNames.has(toolName)) continue;
-      if (toolName === WHAT_FR_TOOL) {
-        // FR subgraph — clear append-list channels (RULE: no history echo).
+      if (toolName === WHAT_FR_TOOL || whatSectionNames.has(toolName)) {
         sends.push(
-          new Send(FR_UNDERSTANDING_NODE, stateForToolSend(state, { clearMessages: true }))
-        );
-        continue;
-      }
-      if (whatSectionNames.has(toolName)) {
-        sends.push(
-          new Send(toolName, stateForToolSend(state, { clearMessages: true }))
+          new Send(
+            toolName === WHAT_FR_TOOL ? WHAT_FR_TOOL : toolName,
+            stateForToolSend(state, { clearMessages: true })
+          )
         );
         continue;
       }
@@ -539,7 +548,9 @@ function buildWhatPhaseGraph(hooks = {}) {
   graph.addEdge(START, 'prepareWhat');
   graph.addEdge('prepareWhat', 'selectTools');
   graph.addConditionalEdges('selectTools', routeAfterSelectToolsWhat);
-  graph.addEdge(FR_UNDERSTANDING_NODE, 'selectTools');
+  if (!whatSectionNames.has(WHAT_FR_TOOL)) {
+    graph.addEdge(WHAT_FR_TOOL, 'selectTools');
+  }
   for (const toolName of whatSectionNames) {
     graph.addEdge(toolName, 'selectTools');
   }
@@ -570,7 +581,8 @@ function buildWhatPhaseGraph(hooks = {}) {
 module.exports = {
   WhatPhaseState,
   buildWhatPhaseGraph,
-  FR_UNDERSTANDING_NODE,
+  /** @deprecated Removed — WhatFrTool node name is WHAT_FR_TOOL / 'WhatFrTool'. */
+  FR_UNDERSTANDING_NODE: 'WhatFrTool',
   STOP_REASONS,
   routeAfterSelectTools,
   routeAfterCompleteness,

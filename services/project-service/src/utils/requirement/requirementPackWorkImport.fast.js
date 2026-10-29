@@ -309,6 +309,9 @@ async function createCardFast(ctx, {
   parentTaskMeta,
   startDate,
   dueDate,
+  sourceFrKey = '',
+  sourceUcKey = '',
+  blueprintTaskId = '',
 }) {
   assertCardNest(ctx, {
     issueType,
@@ -351,6 +354,9 @@ async function createCardFast(ctx, {
     epicId: parseOid(epicId),
     featureId: parseOid(featureId),
     issueType: normalizeIssueType(issueType),
+    sourceFrKey: String(sourceFrKey || '').trim().slice(0, 120),
+    sourceUcKey: String(sourceUcKey || '').trim().slice(0, 120),
+    blueprintTaskId: String(blueprintTaskId || '').trim().slice(0, 120),
     aiGenerated: true,
     isActive: true,
     status: 'todo',
@@ -688,6 +694,9 @@ async function importBlueprintWorkItemsFast(input) {
         startDate: row.startDate || null,
         dueDate: row.dueDate || null,
         parentTaskMeta: links.parentTaskMeta,
+        sourceFrKey: row.sourceFrKey || '',
+        sourceUcKey: row.sourceUcKey || '',
+        blueprintTaskId,
       });
 
       idMap.set(blueprintTaskId, {
@@ -743,6 +752,13 @@ async function importBlueprintWorkItemsFast(input) {
       durationMs: stats.durationMs,
     },
   });
+
+  // blueprintId → Mongo id (task or planning) for Gate2 sprint/dep materialize
+  const blueprintIdMap = {};
+  for (const [bpId, ref] of idMap.entries()) {
+    if (ref?.id) blueprintIdMap[String(bpId)] = String(ref.id);
+  }
+  stats.blueprintIdMap = blueprintIdMap;
 
   return stats;
 }

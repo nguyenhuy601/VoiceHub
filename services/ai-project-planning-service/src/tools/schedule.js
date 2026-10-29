@@ -65,7 +65,7 @@ function clearStaleMatchingResource(container) {
 }
 
 /**
- * G10 Schedule — deterministic only (policy: heuristicOnlyTools).
+ * Schedule Schedule — deterministic only (policy: heuristicOnlyTools).
  * Matching (ex-EmployeeMatchingTool) runs here before capacity/CPM so Gate2
  * Phân công + Lịch share one phase node. timeText from CPM template (no LLM).
  */

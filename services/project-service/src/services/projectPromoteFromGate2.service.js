@@ -117,7 +117,7 @@ async function promoteProjectFromGate2({
     };
     pack.aiAnalysis = shell;
     pack.markModified('aiAnalysis');
-    logger.warn('[requirement] Gate2 G13 forceApprove', {
+    logger.warn('[requirement] Gate2 feasibility forceApprove', {
       packId: String(packId),
       userId: String(userId),
       missingFeasibility: g13Gate.override.missingFeasibility,
@@ -185,40 +185,53 @@ async function promoteProjectFromGate2({
       resolvedBoardId = String(fallbackBoard._id);
       project.defaultBoardId = fallbackBoard._id;
       await project.save();
-      logger.info(
-        '[promote] healed defaultBoardId project=%s board=%s',
-        projectId,
-        resolvedBoardId
-      );
+      logger.info('[promote] healed defaultBoardId', {
+        projectId: String(projectId),
+        boardId: resolvedBoardId,
+      });
     }
   }
 
   const normalizedLeafAssignments = normalizeCreatePackLeafAssignments(leafAssignments);
 
-  // 1) Seed Phase 1 RA artifacts + link customer docs.
+  // 1) Seed Phase 1 RA artifacts + link customer docs (independent soft-fail).
   let analysisSeed = null;
-  try {
+  {
     const { seedArtifactsFromRequirementPack, linkPackDocumentsToProject } = require('./analysis.service');
-    analysisSeed = await seedArtifactsFromRequirementPack({
-      userId,
-      projectId,
-      pack: pack.toObject(),
-    });
-    const linkedDocs = await linkPackDocumentsToProject({
-      organizationId,
-      packId,
-      projectId,
-    });
-    analysisSeed = {
-      ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
-      linkedDocumentCount: linkedDocs.modified,
-    };
-  } catch (seedErr) {
-    logger.warn(
-      '[promote] analysis seed failed project=%s: %s',
-      projectId,
-      seedErr?.message || seedErr
-    );
+    try {
+      analysisSeed = await seedArtifactsFromRequirementPack({
+        userId,
+        projectId,
+        pack: pack.toObject(),
+      });
+    } catch (seedErr) {
+      logger.warn('[promote] analysis seed failed', {
+        projectId: String(projectId),
+        message: String(seedErr?.message || seedErr),
+        errorCode: seedErr?.errorCode || undefined,
+      });
+    }
+    try {
+      const linkedDocs = await linkPackDocumentsToProject({
+        organizationId,
+        packId,
+        projectId,
+      });
+      analysisSeed = {
+        ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
+        linkedDocumentCount: linkedDocs.modified,
+      };
+    } catch (linkErr) {
+      logger.warn('[promote] link pack documents failed', {
+        projectId: String(projectId),
+        packId: String(packId),
+        message: String(linkErr?.message || linkErr),
+      });
+      analysisSeed = {
+        ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
+        linkedDocumentCount: 0,
+      };
+    }
   }
 
   // 2) Seed Phase 2 board tasks + members from Blueprint.
@@ -271,7 +284,34 @@ async function promoteProjectFromGate2({
     }
   }
 
-  // 3) Promote lifecycle → Phase 2 hub (development).
+  // 3) Sprint planned + DEPENDENCY/RISK PlanningArtifacts (soft-fail).
+  let howMaterialize = null;
+  try {
+    const { materializeGate2HowArtifacts } = require('./gate2PromoteMaterialize.service');
+    howMaterialize = await materializeGate2HowArtifacts({
+      userId,
+      organizationId,
+      projectId,
+      boardId: resolvedBoardId || null,
+      packId,
+      pack: pack.toObject ? pack.toObject() : pack,
+      importStats,
+    });
+  } catch (matErr) {
+    logger.warn('[promote] gate2 how materialize failed', {
+      projectId: String(projectId),
+      message: String(matErr?.message || matErr),
+      errorCode: matErr?.errorCode || undefined,
+    });
+    howMaterialize = {
+      error: String(matErr?.message || matErr),
+      sprintsCreated: 0,
+      dependenciesSeeded: 0,
+      risksSeeded: 0,
+    };
+  }
+
+  // 4) Promote lifecycle → Phase 2 hub (development).
   project.status = 'in_development';
   project.deliveryPhase = 'development';
   await project.save();
@@ -281,52 +321,94 @@ async function promoteProjectFromGate2({
     await pack.save();
   }
 
-  // 4) P3/P4 skeleton (non-blocking).
+  // 5) P3/P4 skeleton (non-blocking).
   let phase34 = null;
   try {
-    phase34 = await seedPhase34FromPlan({
+    const rawPhase34 = await seedPhase34FromPlan({
       organizationId,
       projectId,
       userId,
       pack: pack.toObject ? pack.toObject() : pack,
+      blueprintIdMap: importStats?.blueprintIdMap || null,
+    });
+    const tc = rawPhase34?.testCases || {};
+    phase34 = {
+      created: tc.created || 0,
+      skipped: tc.skipped || 0,
+      skippedIncomplete: tc.skippedIncomplete || 0,
+      linkedWorkItems: tc.linkedWorkItems || 0,
+      source: tc.source || null,
+      handoverUpdated: Boolean(rawPhase34?.handover?.updated),
+      catalog: tc.catalog || null,
+      tasks: tc.tasks || null,
+    };
+    logger.info('[promote] phase34 seed ok', {
+      projectId: String(projectId),
+      created: phase34.created,
+      skipped: phase34.skipped,
+      skippedIncomplete: phase34.skippedIncomplete,
+      linkedWorkItems: phase34.linkedWorkItems,
+      source: phase34.source,
     });
   } catch (seedErr) {
-    logger.warn(
-      '[promote] phase34 seed failed project=%s: %s',
-      projectId,
-      seedErr?.message || seedErr
-    );
+    logger.warn('[promote] phase34 seed failed', {
+      projectId: String(projectId),
+      message: String(seedErr?.message || seedErr),
+      errorCode: seedErr?.errorCode || undefined,
+    });
   }
+
+  let importStatsStamp = null;
+  if (importStats && typeof importStats === 'object') {
+    const { blueprintIdMap: _bpMap, ...importRest } = importStats;
+    importStatsStamp = {
+      ...importRest,
+      blueprintIdMapSize: _bpMap ? Object.keys(_bpMap).length : 0,
+    };
+  }
+
+  const promoteMetaBase = {
+    promotedAt: new Date().toISOString(),
+    projectId,
+    importStats: importStatsStamp,
+    phase34: phase34 || null,
+    analysisSeed: analysisSeed || null,
+    linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
+    howMaterialize: howMaterialize
+      ? {
+          sprintsCreated: howMaterialize.sprintsCreated || 0,
+          sprintsSkipped: howMaterialize.sprintsSkipped || 0,
+          tasksSprintLinked: howMaterialize.tasksSprintLinked || 0,
+          dependenciesSeeded: howMaterialize.dependenciesSeeded || 0,
+          dependenciesSkipped: howMaterialize.dependenciesSkipped || 0,
+          risksSeeded: howMaterialize.risksSeeded || 0,
+          risksSkipped: howMaterialize.risksSkipped || 0,
+          warnings: Array.isArray(howMaterialize.warnings)
+            ? howMaterialize.warnings.slice(0, 30)
+            : [],
+          error: howMaterialize.error || undefined,
+        }
+      : null,
+  };
 
   if (key) {
     const container =
       pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? pack.aiAnalysis : {};
     container.gate2Promote = {
+      ...promoteMetaBase,
       idempotencyKey: key,
-      promotedAt: new Date().toISOString(),
-      projectId,
-      importStats: importStats || null,
-      phase34: phase34 || null,
-      analysisSeed: analysisSeed || null,
-      linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
     };
     pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
     await pack.save();
   } else {
-    // Always stamp promote meta for Gate2 auto-promote observability
     const container =
       pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
     container.gate2Promote = {
       ...(container.gate2Promote && typeof container.gate2Promote === 'object'
         ? container.gate2Promote
         : {}),
-      promotedAt: new Date().toISOString(),
-      projectId,
-      importStats: importStats || null,
-      phase34: phase34 || null,
-      analysisSeed: analysisSeed || null,
-      linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
+      ...promoteMetaBase,
       source: 'gate2_po_approve',
     };
     pack.aiAnalysis = container;
@@ -340,6 +422,7 @@ async function promoteProjectFromGate2({
     importStats,
     phase34,
     analysisSeed,
+    howMaterialize,
     promoted: true,
     idempotentReplay: false,
     linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
@@ -347,7 +430,8 @@ async function promoteProjectFromGate2({
 }
 
 /**
- * After Gate2 PO approve — seed board + deliveryPhase=development (atomic with confirm).
+ * Legacy helper — no longer called from confirmAiAnalysisJob (approve ≠ promote).
+ * Prefer POST create-project with idempotencyKey `gate2-phase2:{packId}`.
  * Prefer draft project promote; legacy pack without projectId uses create-from-pack.
  */
 async function autoPromoteAfterGate2PoApprove({
@@ -377,7 +461,7 @@ async function autoPromoteAfterGate2PoApprove({
     forceApprove,
     overrideReason,
     skipCreateProjectPermission: true,
-    idempotencyKey: `gate2-po-approve:${String(packId)}`,
+    idempotencyKey: `gate2-phase2:${String(packId)}`,
   };
 
   if (pack.projectId) {

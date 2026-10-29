@@ -1,5 +1,5 @@
 /**
- * Pure helpers — build create Project (G1) seed payload (FE).
+ * Pure helpers — build create Project seed payload (FE).
  */
 
 import { buildProjectCodeBase } from '../../utils/projectCodeGenerate';

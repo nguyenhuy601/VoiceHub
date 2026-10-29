@@ -174,6 +174,14 @@ const taskSchema = new mongoose.Schema(
       maxlength: 120,
       index: true,
     },
+    /** HOW blueprint task id — Gate2 promote idMap / sprint pbi link */
+    blueprintTaskId: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 120,
+      index: true,
+    },
     /** Plan C — dedupe stamp for ready_to_done_proposed notify. */
     readyToDoneNotifiedAt: {
       type: Date,

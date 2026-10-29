@@ -1,6 +1,6 @@
 /**
- * FREngine — adapter over existing G4 / proposal fragment.
- * Does not re-implement G4; does not write other sections or srsDraft.
+ * FREngine — adapter over existing FR / proposal fragment.
+ * Does not re-implement frUnderstanding; does not write other sections or srsDraft.
  */
 
 const {
@@ -17,7 +17,7 @@ const {
 function run(input = {}) {
   const meta = { engineId: 'fr', section: 'functionalRequirements', version: 1 };
   try {
-    // Prefer precomputed fragment from G4 analyze
+    // Prefer precomputed fragment from FR analyze
     const fragment = input.ownedSectionProjection?.proposalFragment || input.proposalFragment;
     const existingItems =
       input.ownedSectionProjection?.items ||

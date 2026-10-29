@@ -3,7 +3,11 @@
  * Synthetic / empty-state copy (no AI proposal yet) follows account UI locale via optional `t`.
  */
 
-import { listDependencyDisplayItems } from './gate2/dependencyDisplay.js';
+import {
+  DEP_ANALYSIS_STATUS,
+  listDependencyDisplayItems,
+  readDependencyAnalysisMeta,
+} from './gate2/dependencyDisplay.js';
 import { pickHighestReadyCandidate } from './gate2/assignmentCatalogEdit.js';
 import { enrichAssignmentRowsWithSchedule } from './gate2/assignmentScheduleTrust.js';
 import {
@@ -393,6 +397,9 @@ function readWbsMeta(container) {
   const epicsWithoutStories = Array.isArray(meta.epicsWithoutStories)
     ? meta.epicsWithoutStories.map((x) => String(x)).filter(Boolean)
     : [];
+  const reasonCodes = Array.isArray(meta.reasonCodes)
+    ? meta.reasonCodes.map((x) => String(x)).filter(Boolean)
+    : [];
   return {
     decompositionOutcome: String(meta.decompositionOutcome || '').toLowerCase() || null,
     unresolvedStoryIds,
@@ -405,7 +412,56 @@ function readWbsMeta(container) {
     leafCount: meta.leafCount != null ? Number(meta.leafCount) : null,
     source: String(meta.source || '').trim(),
     fallbackReason: String(meta.fallbackReason || '').trim(),
+    coverageComplete: meta.coverageComplete === true ? true : meta.coverageComplete === false ? false : null,
+    generationSucceeded: meta.generationSucceeded === true,
+    reasonCodes,
   };
+}
+
+/** Gate2 WBS tab — explain AC / Story SoT gaps (BE still enforces approve). */
+function diagnoseTasksCoverageReason(container, wbsMeta) {
+  const meta = wbsMeta || readWbsMeta(container);
+  const codes = Array.isArray(meta.reasonCodes) ? meta.reasonCodes : [];
+  if (codes.includes('MISSING_ACCEPTANCE_CRITERIA')) return 'MISSING_ACCEPTANCE_CRITERIA';
+  if (codes.includes('INVALID_SOURCE_REF')) return 'INVALID_SOURCE_REF';
+  if (
+    codes.includes('AC_COVERAGE_GAP') ||
+    meta.coverageComplete === false ||
+    (Array.isArray(meta.uncoveredAcKeys) && meta.uncoveredAcKeys.length > 0) ||
+    (Array.isArray(meta.uncoveredFrIds) && meta.uncoveredFrIds.length > 0) ||
+    (Array.isArray(meta.unresolvedStoryIds) && meta.unresolvedStoryIds.length > 0)
+  ) {
+    return 'AC_COVERAGE_GAP';
+  }
+  if (String(meta.fallbackReason || '') === 'epic_only_backlog_needs_what') {
+    return 'MISSING_ACCEPTANCE_CRITERIA';
+  }
+  return null;
+}
+
+/** Gate2 Quality tab — coverage / UC / details incomplete. */
+function diagnoseQualityCoverageReason(container) {
+  const qp =
+    container?.planning?.qualityPlan && typeof container.planning.qualityPlan === 'object'
+      ? container.planning.qualityPlan
+      : null;
+  if (!qp) return null;
+  const meta = qp.meta && typeof qp.meta === 'object' ? qp.meta : {};
+  const codes = Array.isArray(meta.reasonCodes) ? meta.reasonCodes.map(String) : [];
+  if (codes.includes('MISSING_REQUIRED_UC_REF')) return 'MISSING_REQUIRED_UC_REF';
+  if (codes.includes('INVALID_SOURCE_REF')) return 'INVALID_SOURCE_REF';
+  if (codes.includes('TEST_DETAILS_INCOMPLETE')) return 'TEST_DETAILS_INCOMPLETE';
+  if (codes.includes('AC_COVERAGE_GAP') || meta.coverageComplete === false) {
+    return 'AC_COVERAGE_GAP';
+  }
+  const catalog = Array.isArray(qp.catalogPlan) ? qp.catalogPlan : [];
+  const incomplete = catalog.filter(
+    (tc) =>
+      tc &&
+      (tc.completeness === 'incomplete' || tc.reviewStatus === 'needs_confirmation')
+  );
+  if (incomplete.length && meta.coverageComplete === false) return 'TEST_DETAILS_INCOMPLETE';
+  return null;
 }
 
 /** Epic có trong SoT nhưng chưa có Story — không phân rã được; phải bổ sung ở WHAT. */
@@ -1814,16 +1870,9 @@ function releaseRows(container, { t } = {}) {
 }
 
 /**
- * Quality / Testing — one row per authored Test Case.
- * Heuristic catalog stubs (title only, no steps) are not review rows.
+ * Quality / Testing — one row per catalog Test Case with a title.
+ * Incomplete / title-only cases stay visible as NEEDS_SUPPLEMENT (RULE-FE-03).
  */
-function isAuthoredTestCase(tc, steps) {
-  if (tc?.provenance && typeof tc.provenance === 'object' && tc.provenance.type) return true;
-  return steps.some(
-    (step) => step && String(step.action || '').trim() && String(step.expectedResult || '').trim()
-  );
-}
-
 function qualityRows(container) {
   const qp =
     container?.planning?.qualityPlan && typeof container.planning.qualityPlan === 'object'
@@ -1845,12 +1894,16 @@ function qualityRows(container) {
     const id = String(tc.tcKey || tc.id || `tc-${i}`);
     const sourceRefs = qualitySourceRefs(tc);
     const steps = Array.isArray(tc.steps) ? tc.steps : [];
-    if (!isAuthoredTestCase(tc, steps)) continue;
     const preconditions = Array.isArray(tc.preconditions) ? tc.preconditions : [];
     const testData = Array.isArray(tc.testData) ? tc.testData : [];
+    const hasAuthoredSteps = steps.some(
+      (step) =>
+        step && String(step.action || '').trim() && String(step.expectedResult || '').trim()
+    );
     const incomplete =
       tc.completeness === 'incomplete' ||
       tc.reviewStatus === 'needs_confirmation' ||
+      !hasAuthoredSteps ||
       !steps.length;
     rows.push(
       stamp({
@@ -1880,12 +1933,40 @@ function qualityRows(container) {
         confirmationGaps: Array.isArray(tc.confirmationGaps) ? tc.confirmationGaps : [],
         linkedWbsTaskId: tc.linkedWbsTaskId || '',
         provenance: tc.provenance,
-        status: incomplete ? 'NEEDS_SUPPLEMENT' : 'PROPOSED',
+        status: incomplete ? 'TEST_DETAILS_INCOMPLETE' : 'PROPOSED',
+        coverageReason: incomplete ? 'TEST_DETAILS_INCOMPLETE' : null,
       })
     );
   }
 
   return rows;
+}
+
+/**
+ * Dependencies tab missing flag — not merely rows.length===0 (RULE-FE-02).
+ * COMPLETE_NO_EDGES = analyzed valid empty → not missing.
+ * SKIPPED / no analysisStatus → still missing / not analyzed.
+ */
+function isDependenciesSectionMissing(container, rows) {
+  if (rows.length > 0) return false;
+  const section = container?.analyses?.dependency || {};
+  const { analysisStatus } = readDependencyAnalysisMeta(section);
+  if (!analysisStatus) return true;
+  if (analysisStatus === DEP_ANALYSIS_STATUS.COMPLETE_NO_EDGES) return false;
+  if (analysisStatus === DEP_ANALYSIS_STATUS.DEPENDENCIES_FOUND) return false;
+  // Analyzed but empty / partial / failed — section has status meta, not "never run".
+  if (
+    analysisStatus === DEP_ANALYSIS_STATUS.FAILED ||
+    analysisStatus === DEP_ANALYSIS_STATUS.INCOMPLETE ||
+    analysisStatus === DEP_ANALYSIS_STATUS.PARTIAL ||
+    analysisStatus === DEP_ANALYSIS_STATUS.INVALID ||
+    analysisStatus === DEP_ANALYSIS_STATUS.SEMANTIC_INCOMPLETE
+  ) {
+    return false;
+  }
+  // SKIPPED = LLM off / not analyzed → treat as missing for tab badge.
+  if (analysisStatus === DEP_ANALYSIS_STATUS.SKIPPED) return true;
+  return true;
 }
 
 function qualitySourceRefs(tc) {
@@ -1940,21 +2021,23 @@ export function buildGate2ProposalItems({
   const wbsMeta = readWbsMeta(container);
   const proposalSections = SECTION_ORDER.map((key) => {
     const rows = bySection[key] || [];
-    // WBS gaps (NEEDS_STORIES / wbs.meta) and Quality NEEDS_SUPPLEMENT are informational
-    // only — do not badge the tab as conflict (was too noisy for Gate2 review).
-    let conflictCount =
-      key === 'tasks' || key === 'quality'
-        ? 0
-        : rows.filter((r) =>
-            [
-              'BLOCKING',
-              'OVERLOAD',
-              'CRITICAL',
-              'UNASSIGNED',
-              'HIGH',
-              'UNRESOLVED',
-            ].includes(String(r.status || '').toUpperCase())
-          ).length;
+    let conflictCount = rows.filter((r) =>
+      [
+        'BLOCKING',
+        'OVERLOAD',
+        'CRITICAL',
+        'UNASSIGNED',
+        'HIGH',
+        'UNRESOLVED',
+        'NEEDS_STORIES',
+        'NEEDS_SUPPLEMENT',
+        'AC_COVERAGE_GAP',
+        'TEST_DETAILS_INCOMPLETE',
+        'MISSING_REQUIRED_UC_REF',
+        'INVALID_SOURCE_REF',
+        'MISSING_ACCEPTANCE_CRITERIA',
+      ].includes(String(r.status || '').toUpperCase())
+    ).length;
     if (key === 'assignments') {
       const withCapacityConflicts = rows.filter((r) => Number(r.conflictCount) > 0).length;
       const provisional = rows.filter((r) =>
@@ -1962,13 +2045,42 @@ export function buildGate2ProposalItems({
       ).length;
       conflictCount = Math.max(conflictCount, withCapacityConflicts, provisional);
     }
+    if (key === 'tasks') {
+      const gap =
+        (wbsMeta.uncoveredAcKeys?.length || 0) +
+        (wbsMeta.uncoveredFrIds?.length || 0) +
+        (wbsMeta.unresolvedStoryIds?.length || 0);
+      conflictCount = Math.max(conflictCount, gap);
+    }
+    if (key === 'quality') {
+      const qpMeta = container?.planning?.qualityPlan?.meta || {};
+      const uncovered = Array.isArray(qpMeta.uncoveredCriteria)
+        ? qpMeta.uncoveredCriteria.length
+        : 0;
+      conflictCount = Math.max(conflictCount, uncovered);
+    }
+    let coverageReason = null;
+    if (key === 'tasks') {
+      coverageReason = diagnoseTasksCoverageReason(container, wbsMeta);
+    } else if (key === 'quality') {
+      coverageReason = diagnoseQualityCoverageReason(container);
+    } else if (key === 'releases' || key === 'assignments') {
+      coverageReason = rows.length === 0 ? diagnoseScheduleEmptyReason(container) : null;
+    }
+    const missing =
+      key === 'dependencies'
+        ? isDependenciesSectionMissing(container, rows)
+        : rows.length === 0 && !coverageReason;
+    // Keep section visible when coverage gap explains empty/partial content
+    const missingWithReason = rows.length === 0 && Boolean(coverageReason);
     return {
       key,
       label: localizeGate2SectionLabel(t, key),
       count: rows.length,
-      missing: rows.length === 0,
+      missing: missing || missingWithReason,
       hasConflict: conflictCount > 0,
       conflictCount,
+      coverageReason,
     };
   });
 
@@ -1998,6 +2110,8 @@ export {
   WBS_LEVEL_ORDER,
   mergeBacklogAndTasks,
   diagnoseScheduleEmptyReason,
+  diagnoseTasksCoverageReason,
+  diagnoseQualityCoverageReason,
 };
 
 export default buildGate2ProposalItems;

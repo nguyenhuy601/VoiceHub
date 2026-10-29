@@ -1,17 +1,37 @@
 const { createEvidence } = require('../evidence/evidence');
 
+/** Soft at Gate 2 — still listed for PM HITL, do not flip feasibility.pass / G13 hard-block. */
+const SOFT_FEASIBILITY_CODES = new Set([
+  'FEAS_RESOURCE',
+  'FEAS_SCHEDULE',
+  'AC_COVERAGE_GAP',
+]);
+
+function asSoftFailure(row, fallbackCode, fallbackMessage) {
+  if (row && typeof row === 'object') {
+    return {
+      ...row,
+      code: String(row.code || fallbackCode),
+      soft: true,
+    };
+  }
+  return { code: fallbackCode, message: fallbackMessage, soft: true };
+}
+
 /**
- * G13 Automated Feasibility — whole-plan validator (≠ G8 Evaluate).
- * G8 = "enough info to continue?"; G13 = "is the plan feasible?"
+ * feasibility Automated Feasibility — whole-plan validator (≠ evaluate Evaluate).
+ * evaluate = "enough info to continue?"; feasibility = "is the plan feasible?"
  *
  * Track C: `confidence` / `confidenceScore` on planState MUST NOT flip pass.
- * Pass is derived only from deterministic flags (+ evidence refs for audit).
+ * Pass is derived only from deterministic hard flags (+ evidence refs for audit).
+ * Soft (ops HITL): FEAS_RESOURCE, FEAS_SCHEDULE, AC_COVERAGE_GAP.
  *
  * @param {object} planState
- * @returns {{ pass: boolean, failures: Array, evidenceRefs: string[], evidence: object[] }}
+ * @returns {{ pass: boolean, failures: Array, softFailures: Array, evidenceRefs: string[], evidence: object[] }}
  */
 function checkFeasibility(planState = {}) {
   const failures = [];
+  const softFailures = [];
   const evidence = [];
   const snapshotId = planState.snapshotId || null;
 
@@ -36,13 +56,31 @@ function checkFeasibility(planState = {}) {
     flagsSource.qualityPlanOk !== false && flagsSource.flags?.quality !== false;
 
   if (!coverageOk) {
-    failures.push({ code: 'FEAS_COVERAGE', message: 'FR coverage incomplete' });
+    const wbsGap =
+      flagsSource.wbsCoverageFailure ||
+      flagsSource.flags?.wbsCoverageFailure ||
+      null;
+    softFailures.push(
+      asSoftFailure(
+        wbsGap,
+        'AC_COVERAGE_GAP',
+        'WBS AC/FR coverage incomplete — còn AC/Story bắt buộc chưa được Task bao phủ'
+      )
+    );
   }
   if (!resourceOk) {
-    failures.push({ code: 'FEAS_RESOURCE', message: 'Resource capacity insufficient' });
+    softFailures.push({
+      code: 'FEAS_RESOURCE',
+      message: 'Resource capacity insufficient',
+      soft: true,
+    });
   }
   if (!scheduleOk) {
-    failures.push({ code: 'FEAS_SCHEDULE', message: 'Schedule/deps/deadline conflict' });
+    softFailures.push({
+      code: 'FEAS_SCHEDULE',
+      message: 'Schedule/deps/deadline conflict',
+      soft: true,
+    });
   }
   if (!architectureOk) {
     failures.push({ code: 'FEAS_ARCHITECTURE', message: 'Architecture constraints violated' });
@@ -57,7 +95,9 @@ function checkFeasibility(planState = {}) {
     });
   }
 
+  // Hard pass only — soft codes stay in failures[] for Gate2 UI / audit.
   const pass = failures.length === 0;
+  const allFailures = [...failures, ...softFailures];
 
   const ev = createEvidence({
     sourceType: 'feasibility_check',
@@ -67,13 +107,14 @@ function checkFeasibility(planState = {}) {
     value: pass,
     unit: 'boolean',
     calculatedBy: 'FeasibilityValidator',
-    ruleId: 'G13-FEAS',
+    ruleId: 'FEASIBILITY',
   });
   evidence.push(ev);
 
   return {
     pass,
-    failures,
+    failures: allFailures,
+    softFailures,
     evidenceRefs: evidence.map((e) => e.evidenceId),
     evidence,
     // Audit: any confidence on input was ignored
@@ -81,4 +122,4 @@ function checkFeasibility(planState = {}) {
   };
 }
 
-module.exports = { checkFeasibility };
+module.exports = { checkFeasibility, SOFT_FEASIBILITY_CODES };

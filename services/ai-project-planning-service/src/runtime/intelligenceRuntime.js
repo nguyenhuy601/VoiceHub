@@ -3,7 +3,7 @@ const { generateJson, ollamaModel } = require('./ollamaGenerate');
 const { resolveChatMaxOutputTokens } = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 /**
- * G17 Intelligence Runtime — model/skill/prompt/tool-call parse.
+ * LLM runtime Intelligence Runtime — model/skill/prompt/tool-call parse.
  * Does NOT compute business metrics; does NOT hit DB.
  * P6: timeout/budget metadata; optional JEV2 route when JEV_CONTROL=1.
  */
@@ -18,14 +18,14 @@ function selectModel(env = process.env, opts = {}) {
   const baseUrl = String(env.OLLAMA_BASE_URL || '').trim() || 'http://ollama:11434';
   const timeoutMs = Math.max(
     5000,
-    Math.min(600000, Number(env.G17_LLM_TIMEOUT_MS || 120000) || 120000)
+    Math.min(600000, Number(env.AI_PLANNING_LLM_TIMEOUT_MS || 120000) || 120000)
   );
   const outputCeiling = resolveChatMaxOutputTokens(env);
   const maxTokens = Math.max(
     64,
     Math.min(
       outputCeiling,
-      Number(env.G17_LLM_NUM_PREDICT || outputCeiling) || outputCeiling
+      Number(env.AI_PLANNING_LLM_NUM_PREDICT || outputCeiling) || outputCeiling
     )
   );
 
@@ -170,7 +170,7 @@ function runIntelligenceStub(input = {}) {
 }
 
 /**
- * Production G17 path — uses Ollama when AI_PLANNING_LLM enabled; else stub.
+ * Production LLM runtime path — uses Ollama when AI_PLANNING_LLM enabled; else stub.
  */
 async function runIntelligence(input = {}) {
   const env = input.env || process.env;
@@ -220,7 +220,7 @@ async function runIntelligence(input = {}) {
 }
 
 /**
- * Invoke LLM for structured JSON via G17 ollama wrapper.
+ * Invoke LLM for structured JSON via LLM runtime ollama wrapper.
  */
 async function runStructuredGenerate(opts = {}) {
   return generateJson(opts);

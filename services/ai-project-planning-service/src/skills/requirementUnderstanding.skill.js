@@ -1,5 +1,5 @@
 /**
- * Requirement understanding skill package (G4 via G17).
+ * Requirement understanding skill package (FR via llmRuntime).
  */
 const requirementUnderstandingSkill = {
   skillId: 'requirementUnderstanding',

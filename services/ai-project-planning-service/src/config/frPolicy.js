@@ -1,6 +1,6 @@
 /**
  * FR understanding policy — timeouts and batch size.
- * Prefer AI_FR_* env; AI_G4_* remains deprecated fallback.
+ * Uses AI_FR_* env only (hard cut — no legacy requirement-policy fallback keys).
  * Output ceiling is the qwen-plus window, not a local decode budget.
  */
 
@@ -19,46 +19,37 @@ function clampInt(raw, fallback, { min = 1, max = 1_000_000 } = {}) {
   return Math.max(min, Math.min(max, Math.floor(n)));
 }
 
-/** Prefer FR key; fall back to deprecated G4 key when FR unset. */
-function envPref(env, frKey, g4Key) {
-  const fr = env[frKey];
-  if (fr != null && String(fr).trim() !== '') return fr;
-  const g4 = env[g4Key];
-  if (g4 != null && String(g4).trim() !== '') return g4;
+function envVal(env, key) {
+  const raw = env[key];
+  if (raw != null && String(raw).trim() !== '') return raw;
   return undefined;
 }
 
-function readTask(env, frPrefix, g4Prefix, defaults) {
+function readTask(env, prefix, defaults) {
   return {
-    enabled: envFlag(
-      envPref(env, `${frPrefix}_ENABLED`, `${g4Prefix}_ENABLED`),
-      defaults.enabled
-    ),
-    timeoutMs: clampInt(
-      envPref(env, `${frPrefix}_TIMEOUT_MS`, `${g4Prefix}_TIMEOUT_MS`),
-      defaults.timeoutMs,
-      { min: 5000, max: 600000 }
-    ),
+    enabled: envFlag(envVal(env, `${prefix}_ENABLED`), defaults.enabled),
+    timeoutMs: clampInt(envVal(env, `${prefix}_TIMEOUT_MS`), defaults.timeoutMs, {
+      min: 5000,
+      max: 600000,
+    }),
     maxInputTokens: clampInt(
-      envPref(env, `${frPrefix}_MAX_INPUT_TOKENS`, `${g4Prefix}_MAX_INPUT_TOKENS`),
+      envVal(env, `${prefix}_MAX_INPUT_TOKENS`),
       defaults.maxInputTokens,
       { min: 256, max: 131072 }
     ),
     maxOutputTokens: clampInt(
-      envPref(env, `${frPrefix}_MAX_OUTPUT_TOKENS`, `${g4Prefix}_MAX_OUTPUT_TOKENS`),
+      envVal(env, `${prefix}_MAX_OUTPUT_TOKENS`),
       defaults.maxOutputTokens,
       { min: 64, max: defaults.maxOutputTokens }
     ),
-    numCtx: clampInt(
-      envPref(env, `${frPrefix}_NUM_CTX`, `${g4Prefix}_NUM_CTX`),
-      defaults.numCtx,
-      { min: 512, max: 131072 }
-    ),
-    maxCalls: clampInt(
-      envPref(env, `${frPrefix}_MAX_CALLS`, `${g4Prefix}_MAX_CALLS`),
-      defaults.maxCalls,
-      { min: 0, max: 64 }
-    ),
+    numCtx: clampInt(envVal(env, `${prefix}_NUM_CTX`), defaults.numCtx, {
+      min: 512,
+      max: 131072,
+    }),
+    maxCalls: clampInt(envVal(env, `${prefix}_MAX_CALLS`), defaults.maxCalls, {
+      min: 0,
+      max: 64,
+    }),
   };
 }
 
@@ -69,22 +60,19 @@ function resolveFrPolicy(env = process.env) {
   const outputCeiling = Math.min(QWEN_PLUS_MAX_OUTPUT_TOKENS, modelOutputCeiling(env));
   return {
     input: {
-      maxFr: clampInt(envPref(env, 'AI_FR_MAX_FR', 'AI_G4_MAX_FR'), 200, {
+      maxFr: clampInt(envVal(env, 'AI_FR_MAX_FR'), 200, {
         min: 1,
         max: 2000,
       }),
     },
     preAnalysis: {
-      enabled: envFlag(envPref(env, 'AI_FR_PRE_ANALYSIS', 'AI_G4_PRE_ANALYSIS'), true),
+      enabled: envFlag(envVal(env, 'AI_FR_PRE_ANALYSIS'), true),
     },
     candidateSelection: {
-      enabled: envFlag(
-        envPref(env, 'AI_FR_CANDIDATE_SELECTION', 'AI_G4_CANDIDATE_SELECTION'),
-        true
-      ),
+      enabled: envFlag(envVal(env, 'AI_FR_CANDIDATE_SELECTION'), true),
     },
     llm: {
-      semanticProjection: readTask(env, 'AI_FR_SEMANTIC', 'AI_G4_SEMANTIC', {
+      semanticProjection: readTask(env, 'AI_FR_SEMANTIC', {
         enabled: true,
         timeoutMs: 180_000,
         maxInputTokens: 32768,
@@ -92,7 +80,7 @@ function resolveFrPolicy(env = process.env) {
         numCtx: 32768,
         maxCalls: 16,
       }),
-      conflictAnalysis: readTask(env, 'AI_FR_CONFLICT', 'AI_G4_CONFLICT', {
+      conflictAnalysis: readTask(env, 'AI_FR_CONFLICT', {
         enabled: true,
         timeoutMs: 180_000,
         maxInputTokens: 32768,
@@ -100,7 +88,7 @@ function resolveFrPolicy(env = process.env) {
         numCtx: 32768,
         maxCalls: 8,
       }),
-      synthesis: readTask(env, 'AI_FR_SYNTHESIS', 'AI_G4_SYNTHESIS', {
+      synthesis: readTask(env, 'AI_FR_SYNTHESIS', {
         enabled: true,
         timeoutMs: 180_000,
         maxInputTokens: 32768,
@@ -110,28 +98,18 @@ function resolveFrPolicy(env = process.env) {
       }),
     },
     failure: {
-      continueOnTimeout: envFlag(
-        envPref(env, 'AI_FR_CONTINUE_ON_TIMEOUT', 'AI_G4_CONTINUE_ON_TIMEOUT'),
-        true
-      ),
-      continueOnParseError: envFlag(
-        envPref(env, 'AI_FR_CONTINUE_ON_PARSE_ERROR', 'AI_G4_CONTINUE_ON_PARSE_ERROR'),
-        true
-      ),
+      continueOnTimeout: envFlag(envVal(env, 'AI_FR_CONTINUE_ON_TIMEOUT'), true),
+      continueOnParseError: envFlag(envVal(env, 'AI_FR_CONTINUE_ON_PARSE_ERROR'), true),
     },
     evidence: {
-      required: envFlag(envPref(env, 'AI_FR_EVIDENCE_REQUIRED', 'AI_G4_EVIDENCE_REQUIRED'), true),
+      required: envFlag(envVal(env, 'AI_FR_EVIDENCE_REQUIRED'), true),
     },
   };
 }
 
-/** @deprecated Use resolveFrPolicy */
-const resolveAiG4Policy = resolveFrPolicy;
-
 module.exports = {
   resolveFrPolicy,
-  resolveAiG4Policy,
   clampInt,
   envFlag,
-  envPref,
+  envVal,
 };

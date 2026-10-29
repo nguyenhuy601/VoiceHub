@@ -305,6 +305,7 @@ function mapRowToItem(engineId, row, index) {
 function existingSheetRows(engineId, pack) {
   if (engineId === 'bg') return pack.businessGoals || pack.goals;
   if (engineId === 'br') return pack.businessRules;
+  if (engineId === 'fr') return pack.functionalRequirements || pack.frList;
   if (engineId === 'bpm') return pack.businessProcesses || pack.processes;
   if (engineId === 'uc') return pack.useCases;
   if (engineId === 'data') return pack.entities || pack.domainEntities;
@@ -338,6 +339,21 @@ function prepareSectionDerive(opts = {}) {
   const pack = opts.pack || {};
   const env = opts.env || process.env;
   const section = SECTION_BY_ENGINE[engineId];
+
+  // FR owned by WhatFrTool → frSectionHooks (not generic raw derive).
+  if (engineId === 'fr') {
+    return {
+      mode: 'result',
+      result: {
+        status: TASK_POLICIES.SKIP,
+        reason: 'USE_WHAT_FR_SECTION_HOOK',
+        items: [],
+        llmCalls: 0,
+        coverage: { status: 'NO_DATA', reason: 'USE_WHAT_FR_SECTION_HOOK' },
+        section: section || 'functionalRequirements',
+      },
+    };
+  }
 
   if (!isLlmDeriveSection(engineId) || !shouldRawDeriveSection(engineId, pack, env)) {
     return {
@@ -800,6 +816,8 @@ async function runAllRawSectionDerives(opts = {}) {
   // leftover AI/heuristic rows — must NOT skip LLM (otherwise only empty secs like data re-derive).
   const customerRaw = isCustomerRawIntakePack(pack);
   for (const engineId of order) {
+    // FR SoT = WhatFrTool → frSectionHooks (not batch raw derive).
+    if (String(engineId) === 'fr') continue;
     if (!shouldRawDeriveSection(engineId, pack, env)) continue;
     const sectionKey = SECTION_BY_ENGINE[engineId];
     const proposalItems = sectionKey

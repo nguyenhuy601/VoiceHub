@@ -1,6 +1,6 @@
 /**
  * WBS LLM propose — task leaves under Gate1-approved Stories (SoT) + semantic.
- * Input: stories (+ epics for materialize) + semantic. No FR-unit invent / G7 CTX.
+ * Input: stories (+ epics for materialize) + semantic. No FR-unit invent / RAG CTX.
  */
 
 const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
@@ -1487,6 +1487,15 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     leaves,
     frUnits,
   });
+  const { stampWbsCoverageMeta } = require('../validation/wbsCoverageGate');
+  const coverageMeta = stampWbsCoverageMeta({
+    uncoveredFrIds,
+    uncoveredAcKeys,
+    unresolvedStoryIds,
+    unresolvedUnitIds: unresolvedStoryIds,
+    leafCount: leaves.length,
+    taskCount: leaves.length,
+  });
   return {
     ok: true,
     tasks: materialized.tasks,
@@ -1504,6 +1513,9 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       uncoveredFrIds,
       isolatedFrIds,
       uncoveredAcKeys,
+      coverageComplete: coverageMeta.coverageComplete,
+      generationSucceeded: coverageMeta.generationSucceeded,
+      approvableHint: coverageMeta.approvableHint,
       qualityIssues: allQualityIssues,
       clarifications: allClarifications,
       needsReview,

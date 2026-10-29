@@ -1,6 +1,6 @@
 /**
  * Track B lỗ #6 — early feasibility = signal in AgentState only.
- * Does NOT replace G13 (Gate2 / Layer A). Confidence never flips passHint.
+ * Does NOT replace feasibility (Gate2 / Layer A). Confidence never flips passHint.
  */
 
 const { checkFeasibility } = require('./feasibility');
@@ -94,6 +94,7 @@ function buildFeasibilitySignal(input = {}) {
     notG13: true,
     passHint: check.pass === true,
     failures,
+    softFailures: Array.isArray(check.softFailures) ? check.softFailures : [],
     flags,
     evidenceRefs: Array.isArray(check.evidenceRefs) ? check.evidenceRefs : [],
     confidenceIgnored: Boolean(check.confidenceIgnored),
@@ -101,7 +102,7 @@ function buildFeasibilitySignal(input = {}) {
 }
 
 /**
- * Promote signal → G13 candidate payload for Layer A / Gate2 (after agent exit).
+ * Promote signal → feasibility candidate payload for Layer A / Gate2 (after agent exit).
  * Gate2 remains SoT for pass/fail + override.
  *
  * @param {ReturnType<typeof buildFeasibilitySignal>|null} signal
@@ -118,6 +119,7 @@ function signalToG13Candidate(signal, meta = {}) {
   return {
     pass: signal.passHint === true,
     failures: signal.failures,
+    softFailures: Array.isArray(signal.softFailures) ? signal.softFailures : [],
     evidenceRefs: signal.evidenceRefs,
     evidence: [],
     confidenceIgnored: Boolean(signal.confidenceIgnored),

@@ -1,6 +1,6 @@
 /**
- * G15 AgentState v1 — whitelist + soft trim (Redis-only SoT).
- * RULE-G15-PIN: toolData / pack / container / corpus + tool seek index.
+ * checkpoint AgentState v1 — whitelist + soft trim (Redis-only SoT).
+ * RULE-CHECKPOINT-PIN: toolData / pack / container / corpus + tool seek index.
  */
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
@@ -41,9 +41,9 @@ const ALLOWED_KEYS = new Set([
   'unresolvedIssues',
   'evaluationResult',
   'evaluate',
-  // Early signal ≠ G13 SoT (Track B lỗ #6)
+  // Early signal ≠ feasibility SoT (Track B lỗ #6)
   'feasibilitySignal',
-  // G13 candidate after agent exit (Gate2 SoT)
+  // feasibility candidate after agent exit (Gate2 SoT)
   'feasibility',
   'humanFeedback',
   'lastFeedback',
@@ -54,7 +54,6 @@ const ALLOWED_KEYS = new Set([
   'output',
   'frUnderstanding',
   // Legacy AgentState key — normalizeAgentState maps into frUnderstanding
-  'g4Understanding',
   'hitl',
   'understand',
   'prepareWhat',
@@ -65,9 +64,9 @@ const ALLOWED_KEYS = new Set([
   'select',
   'observe',
   'savedAt',
-  // G16 selective resume (RULE-AUD-01)
+  // selective replan selective resume (RULE-AUD-01)
   'selectiveReplanSteps',
-  // RULE-G15-PIN / RULE-SEEK-01
+  // RULE-CHECKPOINT-PIN / RULE-SEEK-01
   'toolData',
   'pack',
   'container',
@@ -241,10 +240,7 @@ function normalizeAgentState(raw = {}) {
     out.feasibilitySignal = { ...src.feasibilitySignal, notG13: true };
   }
 
-  // STEP 3: prefer frUnderstanding; accept legacy g4Understanding
-  if (out.frUnderstanding == null && isPlainObject(src.g4Understanding)) {
-    out.frUnderstanding = src.g4Understanding;
-  }
+  // Drop retired pack/runtime alias if present on checkpoint payload
   if (Object.prototype.hasOwnProperty.call(out, 'g4Understanding')) {
     delete out.g4Understanding;
   }

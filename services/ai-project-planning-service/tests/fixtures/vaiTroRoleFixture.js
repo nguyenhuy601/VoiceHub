@@ -131,7 +131,7 @@ function planningEnvFromProcess() {
     PHASE1_BPM_GROUNDED_FIRST: '0',
     PHASE1_DATA_GROUNDED_FIRST: '0',
     PHASE1_INTERFACE_GROUNDED_FIRST: '0',
-    G7_RAG_MODE: 'stub',
+    RAG_MODE: 'stub',
   };
 }
 

@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 /**
- * Callback stub → project-service (G20 handshake / run accepted notify).
+ * Callback stub → project-service (plan materialize handshake / run accepted notify).
  * Uses GATEWAY_INTERNAL_TOKEN; no-ops when PROJECT_SERVICE_URL unset.
  */
 

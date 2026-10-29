@@ -11,6 +11,7 @@ const { modelOutputCeiling } = require('../runtime/modelOutputBudget');
 const LLM_DERIVE_ORDER = Object.freeze([
   'bg',
   'br',
+  'fr',
   'uc',
   'bpm',
   'data',
@@ -22,6 +23,7 @@ const LLM_DERIVE_ORDER = Object.freeze([
 const SECTION_BY_ENGINE = Object.freeze({
   bg: 'businessGoals',
   br: 'businessRules',
+  fr: 'functionalRequirements',
   bpm: 'processes',
   uc: 'useCases',
   data: 'entities',
@@ -33,6 +35,7 @@ const SECTION_BY_ENGINE = Object.freeze({
 const RESULT_KEY_BY_ENGINE = Object.freeze({
   bg: 'goals',
   br: 'rules',
+  fr: 'items',
   bpm: 'processes',
   uc: 'useCases',
   data: 'entities',
@@ -44,6 +47,7 @@ const RESULT_KEY_BY_ENGINE = Object.freeze({
 const RESULT_ALIASES = Object.freeze({
   bg: ['businessGoals', 'goal'],
   br: ['businessRules', 'business_rules'],
+  fr: ['functionalRequirements', 'requirements'],
   bpm: ['businessProcesses', 'business_processes'],
   uc: ['use_cases'],
   data: ['domainEntities', 'domain_entities'],
@@ -55,6 +59,7 @@ const RESULT_ALIASES = Object.freeze({
 const PREFIX_BY_ENGINE = Object.freeze({
   bg: 'BG',
   br: 'BR',
+  fr: 'FR',
   bpm: 'BPM',
   uc: 'UC',
   data: 'ENT',
@@ -67,6 +72,7 @@ const PREFIX_BY_ENGINE = Object.freeze({
 const DEFAULT_MAX_TOKENS = Object.freeze({
   bg: QWEN_PLUS_MAX_OUTPUT_TOKENS,
   br: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  fr: QWEN_PLUS_MAX_OUTPUT_TOKENS,
   uc: QWEN_PLUS_MAX_OUTPUT_TOKENS,
   bpm: QWEN_PLUS_MAX_OUTPUT_TOKENS,
   data: QWEN_PLUS_MAX_OUTPUT_TOKENS,
@@ -75,9 +81,11 @@ const DEFAULT_MAX_TOKENS = Object.freeze({
   actors: QWEN_PLUS_MAX_OUTPUT_TOKENS,
 });
 
+/** Label "Fr" → toolName WhatFrTool (matches WHAT_FR_TOOL). */
 const SECTION_LABEL = Object.freeze({
   bg: 'BG',
   br: 'BR',
+  fr: 'Fr',
   bpm: 'BPM',
   uc: 'UC',
   data: 'Data',

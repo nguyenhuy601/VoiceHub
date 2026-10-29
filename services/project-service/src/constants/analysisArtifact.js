@@ -18,6 +18,8 @@ const ANALYSIS_ARTIFACT_KINDS = Object.freeze([
   'DATA',
   'GLOSSARY',
   'ASSUMPTION',
+  /** Gate2 map — WHAT actors section → Phase 1 RA */
+  'ACTOR',
 ]);
 
 /** Kinds PO may import/edit as product author */

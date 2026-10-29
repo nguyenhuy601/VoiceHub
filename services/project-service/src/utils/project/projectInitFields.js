@@ -1,5 +1,5 @@
 /**
- * Pure helpers — G1 Create Project lifecycle fields (không phụ thuộc DB).
+ * Pure helpers — catalog Create Project lifecycle fields (không phụ thuộc DB).
  */
 
 const {
@@ -58,7 +58,7 @@ function parseOptionalDate(raw) {
 }
 
 /**
- * Normalize + validate G1 fields from create/patch body.
+ * Normalize + validate catalog fields from create/patch body.
  * @returns {{ ok: true, fields: object } | { ok: false, message: string }}
  */
 function buildProjectInitFields(raw = {}, { partial = false } = {}) {

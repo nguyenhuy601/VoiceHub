@@ -11,6 +11,7 @@
 const LLM_DERIVE_SECTIONS = Object.freeze([
   'bg',
   'br',
+  'fr',
   'uc',
   'bpm',
   'data',
@@ -19,7 +20,10 @@ const LLM_DERIVE_SECTIONS = Object.freeze([
   'actors',
 ]);
 
-/** Default active LLM derive order — full unlock for remaining Gate1 sections. */
+/**
+ * Default active LLM derive for batch runAllRawSectionDerives.
+ * `fr` is owned by WhatFrTool (frSectionHooks) — omitted here to avoid double-derive.
+ */
 const DEFAULT_ACTIVE_LLM_DERIVE_SECTIONS = Object.freeze([
   'bg',
   'br',

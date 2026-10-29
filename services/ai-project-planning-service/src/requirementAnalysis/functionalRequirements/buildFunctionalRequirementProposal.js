@@ -1,6 +1,6 @@
 /**
  * Build Functional Requirement Proposal fragment for section-scoped reducer.
- * T-G4-04: synthesis must NOT be part of FR analysis result / FR fragment.
+ * T-FR-04: synthesis must NOT be part of FR analysis result / FR fragment.
  * Emits Analysis ProposalItem contract (origin, provenance, sourceRefs).
  */
 
@@ -126,7 +126,7 @@ function buildFunctionalRequirementProposal(opts = {}) {
       hasSynthesis: false,
     },
   };
-  // Optional: attached later by runFrSemanticTask via deriveBacklogFromFrEpics.
+  // Optional: attached later by runFrSemanticTask via backlogStructure pipeline.
   if (opts.backlogStructure && typeof opts.backlogStructure === 'object') {
     out.backlogStructure = opts.backlogStructure;
   }

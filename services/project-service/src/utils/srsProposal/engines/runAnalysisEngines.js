@@ -110,7 +110,7 @@ async function runAnalysisEngines(opts = {}) {
 
   const projections = buildProjections(opts);
   const skip = new Set(opts.skipEngineIds || []);
-  // When FR already applied via whatG4Policy, skip re-running fr unless forced
+  // When FR already applied via whatRequirementPolicy, skip re-running fr unless forced
   if (opts.skipFrIfPresent !== false) {
     const frCount = proposal.generated?.functionalRequirements?.items?.length || 0;
     if (frCount > 0 && !opts.forceFr) skip.add('fr');

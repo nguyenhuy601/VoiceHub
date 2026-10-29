@@ -111,7 +111,7 @@ async function runAnalysisEngines(opts = {}) {
 
   const projections = buildProjections(opts);
   const skip = new Set(opts.skipEngineIds || []);
-  // When FR already applied via whatG4Policy, skip re-running fr unless forced
+  // When FR already applied via whatRequirementPolicy, skip re-running fr unless forced
   if (opts.skipFrIfPresent !== false) {
     const frCount = proposal.generated?.functionalRequirements?.items?.length || 0;
     if (frCount > 0 && !opts.forceFr) skip.add('fr');
@@ -192,7 +192,7 @@ async function runAnalysisEngines(opts = {}) {
           },
           { bumpProposalVersion: false }
         );
-        // Persist FrDecompose tree for Gate1 / HOW (not a catalog section).
+        // Persist backlogStructure (epic catalog + stories) for Gate1/HOW.
         const structure =
           result.backlogStructure ||
           (id === 'fr' ? opts.proposalFragment?.backlogStructure : null);
@@ -203,7 +203,7 @@ async function runAnalysisEngines(opts = {}) {
           };
         }
       } else if (result.execution?.status === 'SUCCESS' && entry?.writesSection) {
-        // Section write skipped (preserve) — still attach FrDecompose when FR.
+        // Section write skipped (preserve) — still attach derived backlog when FR.
         const structure =
           result.backlogStructure ||
           (id === 'fr' ? opts.proposalFragment?.backlogStructure : null);
@@ -217,7 +217,7 @@ async function runAnalysisEngines(opts = {}) {
     }
   }
 
-  // FR skipped (already on proposal) — still attach FrDecompose tree from fragment.
+  // FR skipped (already on proposal) — still attach derived backlogStructure from fragment.
   if (
     !proposal.generated?.backlogStructure &&
     opts.proposalFragment?.backlogStructure &&

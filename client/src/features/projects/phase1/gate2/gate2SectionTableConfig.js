@@ -749,7 +749,17 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 100,
       minPx: 64,
-      render: (r) => r.level || '—',
+      render: (r) => r.level || r.testLevel || '—',
+    },
+    {
+      key: 'testType',
+      headerKey: 'requirements.gate2ColTestType',
+      headerFallback: 'Type',
+      field: 'testType',
+      editable: true,
+      defaultPx: 110,
+      minPx: 72,
+      render: (r) => r.testType || '—',
     },
     {
       key: 'sourceUcKey',
@@ -761,9 +771,36 @@ const GATE2_SECTION_COLUMNS = {
       minPx: 72,
       render: (r) => r.sourceUcKey || '—',
     },
-    COL_SUMMARY,
+    {
+      key: 'executionStatus',
+      headerKey: 'requirements.gate2ColExecution',
+      headerFallback: 'Execution',
+      field: 'executionStatus',
+      editable: false,
+      defaultPx: 110,
+      minPx: 80,
+      render: (r, t) => {
+        const status = String(r?.executionStatus || '').toLowerCase();
+        if (status === 'passed') {
+          return tr(t, 'requirements.qualityReviewPassed', 'Đạt');
+        }
+        if (status === 'failed') {
+          return tr(t, 'requirements.qualityReviewFailed', 'Không đạt');
+        }
+        return tr(t, 'requirements.qualityReviewNotRun', 'Chưa chạy');
+      },
+    },
     COL_STATUS,
     COL_AUDIT_SOURCE,
+    {
+      key: 'openTcDetail',
+      headerKey: 'requirements.gate2ColTcDetail',
+      headerFallback: 'Chi tiết',
+      editable: false,
+      defaultPx: 100,
+      minPx: 80,
+      render: () => '—',
+    },
   ],
   effort_roles: [
     COL_TITLE,
@@ -801,7 +838,34 @@ export function getGate2ColumnsForSection(section, opts = {}) {
     typeof opts.onOpenSprintScope === 'function' ? opts.onOpenSprintScope : null;
   const onOpenScheduleDetail =
     typeof opts.onOpenScheduleDetail === 'function' ? opts.onOpenScheduleDetail : null;
+  const onOpenTcDetail =
+    typeof opts.onOpenTcDetail === 'function' ? opts.onOpenTcDetail : null;
   const sectionKey = String(section || '');
+
+  if (sectionKey === 'quality' && onOpenTcDetail) {
+    return cols.map((col) => {
+      if (col.key !== 'openTcDetail') return col;
+      return {
+        ...col,
+        render: (r, t) =>
+          createElement(
+            'button',
+            {
+              type: 'button',
+              className:
+                'font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              onClick: (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenTcDetail(r);
+              },
+              title: tr(t, 'requirements.gate2OpenTcDetail', 'Xem chi tiết Test Case'),
+            },
+            tr(t, 'requirements.gate2OpenTcDetail', 'Xem chi tiết')
+          ),
+      };
+    });
+  }
 
   if (sectionKey === 'releases' && onOpenSprintScope) {
     return cols.map((col) => {

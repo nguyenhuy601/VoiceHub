@@ -1,10 +1,10 @@
 const { getRedisClient } = require('@enterprise/shared');
 const { PlanningRun } = require('../run/PlanningRun.model');
-const { g15CheckpointKey } = require('./redisKeys');
+const { checkpointKey } = require('./redisKeys');
 const { normalizeAgentState } = require('./agentStateSchema');
 
 /**
- * G15 Checkpoint store — Redis-only AgentState (≠ G19 lifecycle).
+ * checkpoint Checkpoint store — Redis-only AgentState (≠ run store lifecycle).
  * No dual-write to PlanningRun.checkpoint.
  */
 
@@ -28,7 +28,7 @@ async function saveCheckpoint(runId, agentState) {
   const id = String(runId || '').trim();
   if (!id) {
     const err = new Error('runId is required');
-    err.code = 'G15_RUN_ID_REQUIRED';
+    err.code = 'CHECKPOINT_RUN_ID_REQUIRED';
     throw err;
   }
 
@@ -39,7 +39,7 @@ async function saveCheckpoint(runId, agentState) {
     savedAt,
   });
 
-  const key = g15CheckpointKey(id);
+  const key = checkpointKey(id);
   const payload = JSON.stringify({ state, savedAt });
   await getClient().set(key, payload);
 
@@ -66,7 +66,7 @@ async function loadCheckpoint(runId) {
   const doc = await PlanningRun.findById(id).select('snapshotId').lean();
   if (!doc) return null;
 
-  const raw = await getClient().get(g15CheckpointKey(id));
+  const raw = await getClient().get(checkpointKey(id));
   if (raw == null || raw === '') {
     console.log('[g15_miss]', id);
     return {
@@ -98,14 +98,14 @@ async function loadCheckpoint(runId) {
 }
 
 /**
- * Delete G15 key (completed / cancelled / expired — not retriable failed).
+ * Delete checkpoint key (completed / cancelled / expired — not retriable failed).
  * @param {string} runId
  */
 async function deleteCheckpoint(runId) {
   const id = String(runId || '').trim();
   if (!id) return false;
   try {
-    await getClient().del(g15CheckpointKey(id));
+    await getClient().del(checkpointKey(id));
     console.log('[g15_del]', id);
     return true;
   } catch (error) {
@@ -115,7 +115,7 @@ async function deleteCheckpoint(runId) {
 }
 
 /**
- * RULE-G15-03: execution resume requires Redis checkpoint.
+ * RULE-CHECKPOINT-03: execution resume requires Redis checkpoint.
  * callback_pending (deliver only) skips this check.
  *
  * @param {string} runId
@@ -127,7 +127,7 @@ async function assertCheckpointForResume(runId, { hasCallbackPayload = false } =
   }
   const loaded = await loadCheckpoint(runId);
   if (!loaded?.checkpoint?.state) {
-    const err = new Error('G15 checkpoint missing; cannot resume execution');
+    const err = new Error('checkpoint checkpoint missing; cannot resume execution');
     err.code = 'CHECKPOINT_MISSING';
     throw err;
   }

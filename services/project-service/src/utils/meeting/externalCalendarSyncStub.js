@@ -1,5 +1,5 @@
 /**
- * G3 stub — external calendar sync (Google/Outlook) not implemented.
+ * normalizeCatalog stub — external calendar sync (Google/Outlook) not implemented.
  * SoT remains project MeetingEvent; sync is inbound/outbound adapter later.
  */
 
@@ -7,7 +7,7 @@ function getExternalCalendarSyncStatus() {
   return {
     enabled: false,
     providers: [],
-    note: 'External calendar sync deferred to G3 — MeetingEvent is SoT',
+    note: 'External calendar sync deferred to normalizeCatalog — MeetingEvent is SoT',
   };
 }
 

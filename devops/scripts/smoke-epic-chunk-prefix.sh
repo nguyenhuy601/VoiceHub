@@ -40,20 +40,27 @@ if [[ -z "${CID}" ]]; then
   skip "no voicehub_ai-project-planning-service container (deploy stack first)"
 else
   if docker exec "$CID" node -e "
-const m=require('./src/engines/deriveBacklogFromFrEpics');
+const m=require('./src/engines/frEpicCatalog');
 const o=m.reconcileEpicsAcrossChunks([{
   epics:[{id:'c0-EPIC-IOT',name:'c0-EPIC-IOT',sourceFrIds:['c0-FR-1'],storyIds:[]}],
   items:[{id:'c0-FR-1',parentEpicId:'c0-EPIC-IOT'}]
 }]);
 if(o.epics[0].id!=='EPIC-IOT'||o.epics[0].name!=='EPIC-IOT') process.exit(2);
-const d=m.deriveBacklogFromFrEpics(
-  [{id:'FR-1',name:'A',ac:'x',parentEpicId:'c0-EPIC-IOT'}],
-  [{id:'c0-EPIC-IOT',name:'c0-EPIC-IOT'}]
-);
-if(!d.ok||d.backlogStructure.epics[0].id!=='EPIC-IOT') process.exit(3);
-console.log('container_ok', o.epics[0].id, d.backlogStructure.epics[0].name);
+const {buildBacklogStructureFromFr}=require('./src/engines/backlogStructure/buildBacklogStructureFromFr');
+(async()=>{
+  const d=await buildBacklogStructureFromFr({
+    frItems:[{id:'FR-1',name:'A',acceptanceCriteria:'x',parentEpicId:'EPIC-IOT'}],
+    epicsCatalog:[{id:'EPIC-IOT',name:'EPIC-IOT'}],
+    packId:'smoke',
+    sourceSnapshotVersion:'smoke1'
+  });
+  if(!d.ok||!d.backlogStructure.stories.length) process.exit(3);
+  const s=d.backlogStructure.stories[0];
+  if(String(s.id)===String(s.sourceFrIds[0])) process.exit(4);
+  console.log('container_ok', o.epics[0].id, s.id);
+})().catch((e)=>{ console.error(e); process.exit(5); });
 "; then
-    ok "planning container reconcile+derive"
+    ok "planning container reconcile+backlogStructure"
   else
     fail "planning container still has old image — rebuild: bash devops/swarm/build-local-images.sh ai-project-planning-service && docker service update --force voicehub_ai-project-planning-service"
   fi
@@ -73,14 +80,21 @@ const {materializeApprovedBacklogStructure}=require('./src/utils/srsProposal/mat
 const stamped=materializeApprovedBacklogStructure({
   generated:{
     functionalRequirements:{items:[
-      {logicalId:'FR-1',title:'A',parentEpicId:'c0-EPIC-IOT',ac:'x'}
+      {logicalId:'FR-1',title:'A',parentEpicId:'EPIC-IOT',ac:'x'}
     ]},
-    backlogStructure:{epics:[{id:'c0-EPIC-IOT',name:'c0-EPIC-IOT'}]}
+    backlogStructure:{
+      epics:[{id:'EPIC-IOT',name:'EPIC-IOT',sourceFrIds:['FR-1']}],
+      features:[],
+      stories:[{id:'STORY-smoke1',title:'A',parentEpicId:'EPIC-IOT',sourceFrIds:['FR-1']}],
+      identityReview:[],
+      meta:{shapeVersion:'backlog-structure',publishable:true}
+    }
   },
   review:{decisions:{'FR-1':{action:'accept'}}}
 });
-if(!stamped||stamped.epics[0].id!=='EPIC-IOT'||stamped.epics[0].name!=='EPIC-IOT') process.exit(2);
-console.log('stamp_ok', stamped.epics[0].id, stamped.epics[0].name);
+if(!stamped||stamped.meta.shapeVersion!=='backlog-structure') process.exit(2);
+if(!stamped.stories[0]||stamped.stories[0].id==='FR-1') process.exit(3);
+console.log('stamp_ok', stamped.epics[0].id, stamped.stories[0].id);
 "; then
     ok "project-service container stamp"
   else

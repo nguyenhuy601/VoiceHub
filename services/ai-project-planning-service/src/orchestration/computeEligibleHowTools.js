@@ -136,6 +136,21 @@ function computeEligibleHowTools(state, opts = {}) {
       continue;
     }
 
+    // Staged WBS checkpoint: block all dependents until wbsBaselineRevisionId is pinned.
+    if (toolName !== 'WbsTool') {
+      const {
+        isWbsCheckpointEnabled,
+        needsWbsConfirm,
+      } = require('../planningRevision/wbsCheckpoint');
+      if (isWbsCheckpointEnabled() && needsWbsConfirm(state)) {
+        blocked.push({
+          toolName,
+          blockedBy: ['wbs_baseline_confirm'],
+        });
+        continue;
+      }
+    }
+
     // Schedule requires dependency scheduleReady (not merely DependencyTool terminal).
     if (toolName === 'ScheduleTool') {
       const flags = dependencyAnalysisFlags(state);

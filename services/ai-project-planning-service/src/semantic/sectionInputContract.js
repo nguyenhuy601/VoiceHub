@@ -255,9 +255,9 @@ function nfrSectionToPackRows(sectionInput) {
 }
 
 /**
- * Prefer canonicalRaw FR for G4; fall back to projected/pack lists.
+ * Prefer canonicalRaw FR for frUnderstanding; fall back to projected/pack lists.
  */
-function resolveFrListForG4(snapshot, pack) {
+function resolveFrListForUnderstanding(snapshot, pack) {
   const canonicalRaw = snapshot?.canonicalRaw || pack?.aiAnalysis?.canonicalRaw;
   if (canonicalRaw) {
     const section = buildSectionInput('fr', canonicalRaw);
@@ -281,5 +281,5 @@ module.exports = {
   buildSectionInput,
   frSectionToPackRows,
   nfrSectionToPackRows,
-  resolveFrListForG4,
+  resolveFrListForUnderstanding,
 };

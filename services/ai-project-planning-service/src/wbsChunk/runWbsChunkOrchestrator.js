@@ -2,7 +2,7 @@
  * Supervisor around the WBS chunk graph.
  * RULE-LG-Q-01: workers run outside the phase graph; this loop drains the queue
  * then resumes the chunk graph with Command({ resume }) on the LG checkpointer.
- * Do not merge results into G15/app Redis as phase resume SoT.
+ * Do not merge results into agentCheckpoint/app Redis as phase resume SoT.
  *
  * Rabbit fan-in uses interrupt() + Command(resume). WbsTool runs inside howPhaseGraph,
  * so parent ALS has __pregel_read → child would be isNested and GraphInterrupt would

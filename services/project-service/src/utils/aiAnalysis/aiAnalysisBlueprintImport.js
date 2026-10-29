@@ -4,6 +4,13 @@
 
 const { ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
 const { toDateKey, taskDatesFromSchedule } = require('./scheduleDateKeys');
+const {
+  primaryFrKey,
+  primaryUcKey,
+  textOf,
+  buildFrToUcMap,
+  deriveUcFromFrIds,
+} = require('./fieldMapCanon');
 
 function assertBlueprintReadyForProjectCreate(pack) {
   const { assertGate2ProjectPlanConfirmed } = require('../tools/assertGate2ProjectPlanConfirmed');
@@ -81,8 +88,12 @@ function sortBlueprintTasksParentsFirst(tasks = []) {
 /**
  * Build ordered import rows from blueprint tasks (parent before children).
  * Preserves WBS `level` for epic/feature → PlanningItem and story/task → cards.
+ * Optional frToUcMap / useCases: derive sourceUcKey when HOW task lacks UC ids.
  */
-function mapBlueprintTasksToImportPlan(container, { taskIds = null, applyAssignees = true } = {}) {
+function mapBlueprintTasksToImportPlan(
+  container,
+  { taskIds = null, applyAssignees = true, frToUcMap = null, useCases = null } = {}
+) {
   const c = ensureAiAnalysisContainer(container);
   let tasks = [...(c.planning?.tasks || [])];
   if (Array.isArray(taskIds) && taskIds.length) {
@@ -100,17 +111,29 @@ function mapBlueprintTasksToImportPlan(container, { taskIds = null, applyAssigne
   const scheduleDatesByTask = taskDatesFromSchedule(c.resource?.schedule || []);
   const byId = new Map(tasks.map((t) => [String(t.id), t]));
   const sorted = sortBlueprintTasksParentsFirst(tasks);
+  const resolvedFrToUc =
+    frToUcMap instanceof Map
+      ? frToUcMap
+      : buildFrToUcMap(Array.isArray(useCases) ? useCases : []);
 
   const rows = sorted.map((t, index) => {
     const dates = resolveBlueprintTaskDates(t, scheduleDatesByTask);
     const parentId = t.parentId != null ? String(t.parentId) : '';
+    const blueprintTaskId = textOf(t.id, 120);
+    const sourceFrIds = Array.isArray(t.sourceFrIds) ? t.sourceFrIds.map(String) : [];
+    let sourceUcKey = primaryUcKey(t);
+    if (!sourceUcKey && sourceFrIds.length) {
+      sourceUcKey = deriveUcFromFrIds(sourceFrIds, resolvedFrToUc);
+    }
     return {
-      blueprintTaskId: t.id,
+      blueprintTaskId,
       parentBlueprintTaskId: parentId && byId.has(parentId) ? parentId : null,
       name: t.name,
       level: t.level != null ? String(t.level) : '',
       area: t.area || '',
-      sourceFrIds: Array.isArray(t.sourceFrIds) ? t.sourceFrIds : [],
+      sourceFrIds,
+      sourceFrKey: primaryFrKey(t),
+      sourceUcKey,
       sourceCapabilityIds: Array.isArray(t.sourceCapabilityIds) ? t.sourceCapabilityIds : [],
       suggestedRoleKey: t.suggestedRoleKey || '',
       effortHours: t.effortHours ?? null,

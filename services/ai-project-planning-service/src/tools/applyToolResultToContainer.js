@@ -1,5 +1,5 @@
 /**
- * Merge G18 tool output container — deep-merge namespaces (parallel-safe).
+ * Merge HOW tool sequence tool output container — deep-merge namespaces (parallel-safe).
  */
 
 const { deepMergePlanningContainers } = require('./mergePlanningContainers');

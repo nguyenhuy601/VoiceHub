@@ -19,12 +19,11 @@ const HARD_REL_CODES = new Set([
 /**
  * @param {{
  *   frUnderstanding?: object|null,
- *   g4Understanding?: object|null,
- *   validation?: object|null,
+ *    *   validation?: object|null,
  * }} input
  */
 function evaluateRequirementIntegrityGate(input = {}) {
-  const raw = input.frUnderstanding || input.g4Understanding;
+  const raw = input.frUnderstanding;
   const g4 = raw && typeof raw === 'object' ? raw : {};
   const validation =
     input.validation && typeof input.validation === 'object'

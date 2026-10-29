@@ -109,6 +109,7 @@ function sectionEmpty(proposal, section) {
 const SECTION_BY_ENGINE = Object.freeze({
   bg: 'businessGoals',
   br: 'businessRules',
+  fr: 'functionalRequirements',
   bpm: 'processes',
   uc: 'useCases',
   data: 'entities',
@@ -256,7 +257,7 @@ async function applyRawSectionDerive(opts = {}) {
   }
 
   const deriveStartedAt = Date.now();
-  // Epic→Story derive lives in runFrSemanticTask (deriveBacklogFromFrEpics / assignFrEpicsLlm).
+  // Backlog structure (Epic/Feature/Story) lives in runFrSemanticTask / assignFrEpicsLlm.
   const frDecomposeSpan = {
     ms: 0,
     llmCalls: 0,

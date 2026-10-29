@@ -2,7 +2,7 @@
  * Bridge: tool enqueue + awaitWave helpers for llmJobs infra / tests.
  * RULE-LG-Q-01: Queue stays outside phase graphs. WHAT/HOW do NOT wire awaitWave —
  * selectTools + Send only. Long jobs (WBS) resume via interrupt/Command/updateState
- * on the LangGraph checkpointer — never hand-merge G15 as resume SoT.
+ * on the LangGraph checkpointer — never hand-merge checkpoint as resume SoT.
  */
 
 const { JOB_TYPES, isJobTypeEnabled } = require('./llmJobContract');

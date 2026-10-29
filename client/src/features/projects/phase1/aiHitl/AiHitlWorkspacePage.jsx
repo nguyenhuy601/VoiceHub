@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { requirementAPI } from '../../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
+import { formatGate2FeasibilityToast } from './formatGate2FeasibilityToast';
 import useRequirementAccess from '../../../../hooks/useRequirementAccess';
 import { useNetworkStatus } from '../../../../hooks/useNetworkStatus';
 import {
@@ -41,15 +42,11 @@ function textOr(t, key, vars) {
 }
 
 function buildGate1Summary(pack) {
-  const g4 =
-    pack?.aiAnalysis?.analyses?.frUnderstanding ||
-    pack?.aiAnalysis?.analyses?.g4Understanding;
   const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
   const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
   const bundle = attachConflictAmbiguityToGate1Bundle(
-    buildGate1ProposalItems({ pack, g4, proposal }),
-    pack,
-    g4
+    buildGate1ProposalItems({ pack, proposal }),
+    pack
   );
   const decisions = proposal?.review?.decisions || {};
   const expectedRevisionIds = {};
@@ -132,6 +129,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const [ackDialog, setAckDialog] = useState(null);
   /** So ConfirmDialog onConfirm→onClose does not double-kick HOW. */
   const ackDialogRef = useRef(null);
+  /** After PO approve — confirm «Chuyển sang phase 2» before create-project. */
+  const [promotePhase2Dialog, setPromotePhase2Dialog] = useState(null);
 
   const packIdFromQuery = String(searchParams.get('packId') || '').trim();
   const wantStartWhat = ['1', 'true'].includes(String(searchParams.get('startWhat') || '').toLowerCase());
@@ -505,7 +504,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   }, [startHowFirst]);
 
   /**
-   * Birth / manual start: prepare_only → G4 (same sequence as Overview pipeline).
+   * Birth / manual start: prepare_only → FR (same sequence as Overview pipeline).
    */
   const runWhatPipeline = useCallback(
     async ({ force = false, feedback = '', parentRunId = '', idempotencyKey = '' } = {}) => {
@@ -1215,11 +1214,79 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     );
   };
 
+  const runGate2PromoteToPhase2 = async ({
+    forceApprove = false,
+    noteTrimmed = '',
+    overrideReason = '',
+  } = {}) => {
+    if (!organizationId || !packId || busy) return;
+    setBusy(true);
+    setGateActionLabel(
+      t('requirements.gate2PromotePhase2Overlay') || 'Đang chuyển sang phase 2…'
+    );
+    try {
+      const reason =
+        String(noteTrimmed || overrideReason || '').trim() ||
+        (forceApprove
+          ? 'PO chuyển sang phase 2 sau Gate 2 (feasibility override nếu cần).'
+          : '');
+      const res = await requirementAPI.createProjectFromPack(organizationId, packId, {
+        importWorkItems: true,
+        applyAssignees: true,
+        idempotencyKey: `gate2-phase2:${String(packId)}`,
+        ...(forceApprove
+          ? {
+              forceApprove: true,
+              overrideReason: reason.slice(0, 2000),
+            }
+          : {}),
+      });
+      const promotePayload = unwrap(res);
+      toast.success(
+        t('requirements.gate2PromotePhase2Success') ||
+          t('requirements.gate2ConfirmAndPromoteSuccess')
+      );
+      onPromoted?.(promotePayload);
+      await refresh().catch(() => {});
+    } catch (err) {
+      toast.error(
+        formatGate2FeasibilityToast(err, {
+          resolveApiErrorMessage,
+          fallback:
+            t('requirements.gate2PromotePhase2Fail') ||
+            t('requirements.gate2ConfirmAndPromoteFail'),
+        })
+      );
+      await refresh().catch(() => {});
+    } finally {
+      setBusy(false);
+      setGateActionLabel('');
+    }
+  };
+
+  const openPromotePhase2Dialog = (meta = {}) => {
+    setPromotePhase2Dialog({
+      forceApprove: Boolean(meta.forceApprove),
+      noteTrimmed: String(meta.noteTrimmed || '').trim(),
+      overrideReason: String(meta.overrideReason || '').trim(),
+    });
+  };
+
   const onGate2PoApprove = async (meta = {}) => {
     if (!organizationId || !packId || busy) return;
     const activateOnly = Boolean(meta.activateOnly);
-    // Hole #3: soft UI warnings must NOT auto forceApprove — only explicit / activateOnly / G13 retry+note
-    const forceApprove = Boolean(meta.forceApprove) || Boolean(activateOnly);
+    // CTA khi HOW đã confirmed — chỉ mở xác nhận chuyển phase 2 (promote)
+    if (activateOnly) {
+      openPromotePhase2Dialog({
+        forceApprove: true,
+        noteTrimmed: '',
+        overrideReason: 'PO chuyển sang phase 2 (HOW đã confirmed).',
+      });
+      return;
+    }
+
+    // Hole #3: soft UI warnings must NOT auto forceApprove — only explicit / feasibility retry+note
+    const forceApprove = Boolean(meta.forceApprove);
     const warnParts = [];
     if (Number(meta.missingCount) > 0) {
       const labels = Array.isArray(meta.missingSectionLabels)
@@ -1240,37 +1307,25 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       );
     }
     if (meta.hasSoftWarnings && !forceApprove) {
-      warnParts.push(
-        t('requirements.gate2WarnSoftNoForce')
-      );
+      warnParts.push(t('requirements.gate2WarnSoftNoForce'));
     }
-    if (forceApprove || activateOnly) {
-      warnParts.push(
-        t('requirements.gate2WarnForcePromote')
-      );
+    if (forceApprove) {
+      warnParts.push(t('requirements.gate2WarnForcePromote'));
     }
     if (meta.canPromote === false && !canReviewGate2Po) {
-      warnParts.push(
-        t('requirements.gate2WarnNoPromotePerm')
-      );
+      warnParts.push(t('requirements.gate2WarnNoPromotePerm'));
     }
-    const baseDesc = activateOnly
-      ? t('requirements.gate2ActivateDesc')
-      : t('requirements.gate2PoApproveDesc');
+    const baseDesc = t('requirements.gate2PoApproveDesc');
     const description = warnParts.length
       ? `${t('requirements.gate2WarnLead')}\n• ${warnParts.join('\n• ')}\n\n${baseDesc}`
       : baseDesc;
     const note = await requestNote({
-      title: activateOnly
-        ? t('requirements.promoteProjectRetry')
-        : t('requirements.gate2PoApproveTitle'),
+      title: t('requirements.gate2PoApproveTitle'),
       description,
       placeholder: t('requirements.gate2ConfirmNotePlaceholder'),
-      submitLabel: activateOnly
-        ? t('requirements.promoteProjectRetry')
-        : warnParts.length
-          ? t('requirements.gate2PoApproveAnyway')
-          : t('requirements.gate2PoApprove'),
+      submitLabel: warnParts.length
+        ? t('requirements.gate2PoApproveAnyway')
+        : t('requirements.gate2PoApprove'),
       variant: warnParts.length ? 'warning' : 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -1278,37 +1333,25 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     if (note === null) return;
     setBusy(true);
     setGateActionLabel(
-      activateOnly
-        ? t('requirements.gate2ActivateOverlay') || 'Đang kích hoạt delivery…'
-        : t('requirements.gate2PoApproveOverlay') || 'Đang duyệt Gate 2 và kích hoạt dự án…'
+      t('requirements.gate2PoApproveOverlay') || 'Đang duyệt Gate 2…'
     );
     try {
       const howSt = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
-      let promotePayload = null;
-      let confirmData = null;
       const noteTrimmed = String(note || '').trim();
       const overrideReason =
         noteTrimmed ||
-        (forceApprove || activateOnly
-          ? 'PO kích hoạt delivery sau Gate 2 (G13 override nếu cần).'
-          : '');
-      if (!activateOnly && howSt !== 'confirmed') {
+        (forceApprove ? 'PO duyệt Gate 2 (feasibility override nếu cần).' : '');
+      if (howSt !== 'confirmed') {
         const confirmBody = {
           action: 'po_approve',
           ...(noteTrimmed ? { note: noteTrimmed.slice(0, 1000) } : {}),
-          ...(forceApprove || activateOnly
+          ...(forceApprove
             ? { forceApprove: true, overrideReason: overrideReason.slice(0, 2000) }
             : {}),
         };
         try {
-          const confirmRes = await requirementAPI.confirmPhaseGate2(
-            organizationId,
-            packId,
-            confirmBody
-          );
-          confirmData = unwrap(confirmRes) || {};
+          await requirementAPI.confirmPhaseGate2(organizationId, packId, confirmBody);
         } catch (confirmErr) {
-          // Hole #2/#3: confirm blocked by G13 — retry once with force when user left a note
           const code = String(
             confirmErr?.response?.data?.errorCode || confirmErr?.errorCode || ''
           );
@@ -1318,54 +1361,28 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             'G13_OVERRIDE_REASON_REQUIRED',
           ].includes(code);
           if (g13Block && noteTrimmed && !confirmBody.forceApprove) {
-            const retryRes = await requirementAPI.confirmPhaseGate2(organizationId, packId, {
+            await requirementAPI.confirmPhaseGate2(organizationId, packId, {
               ...confirmBody,
               forceApprove: true,
               overrideReason: noteTrimmed.slice(0, 2000),
             });
-            confirmData = unwrap(retryRes) || {};
           } else {
             throw confirmErr;
           }
         }
-        if (confirmData.promoted && confirmData.promote) {
-          promotePayload = confirmData;
-        } else if (confirmData.promoteError) {
-          console.warn('[gate2] auto-promote failed, retry create-project', confirmData.promoteError);
-        }
       }
-      if (!promotePayload?.promoted) {
-        const g13Codes = new Set([
-          'G13_FEASIBILITY_FAILED',
-          'G13_FEASIBILITY_MISSING',
-          'FEAS_QUALITY_PLAN',
-          'FEAS_DEPLOY_PLAN',
-        ]);
-        const promoteErrCode = String(confirmData?.promoteError?.errorCode || '');
-        // Hole #3: G13 retry with force only when user left a note (explicit override intent)
-        const g13RetryWithNote = g13Codes.has(promoteErrCode) && Boolean(noteTrimmed);
-        const res = await requirementAPI.createProjectFromPack(organizationId, packId, {
-          importWorkItems: true,
-          applyAssignees: true,
-          ...(forceApprove || activateOnly || g13RetryWithNote
-            ? {
-                forceApprove: true,
-                overrideReason: (noteTrimmed || overrideReason).slice(0, 2000),
-              }
-            : {}),
-        });
-        promotePayload = unwrap(res);
-      }
-      toast.success(
-        t('requirements.gate2ConfirmAndPromoteSuccess')
-      );
-      onPromoted?.(promotePayload);
+      toast.success(t('requirements.gate2PoApproveSuccess') || 'Đã duyệt Gate 2.');
       await refresh().catch(() => {});
+      openPromotePhase2Dialog({
+        forceApprove,
+        noteTrimmed,
+        overrideReason,
+      });
     } catch (err) {
       toast.error(
-        resolveApiErrorMessage(err, {
-          fallback:
-            t('requirements.gate2ConfirmAndPromoteFail'),
+        formatGate2FeasibilityToast(err, {
+          resolveApiErrorMessage,
+          fallback: t('requirements.gate2PoApproveFail') || t('requirements.gate2ConfirmAndPromoteFail'),
         })
       );
       await refresh().catch(() => {});
@@ -1622,6 +1639,22 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             onRerunWhat={reviseWhat}
             onStartHow={startHowFirst}
             onRerunHow={rerunHow}
+            organizationId={organizationId}
+            packId={packId}
+            onRefresh={refresh}
+            onOpenGate2={() => {
+              setTab('review');
+              try {
+                const next = new URLSearchParams(searchParams);
+                next.set('tab', 'review');
+                if (packId && !next.get('packId')) next.set('packId', packId);
+                setSearchParams(next, { replace: true });
+              } catch {
+                /* ignore */
+              }
+            }}
+            canConfirmWbs={Boolean(canRun || canRerunHow)}
+            canApprovePlan={Boolean(canApprove)}
             t={t}
           />
         </div>
@@ -1678,6 +1711,22 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         message={ackDialog?.message || ''}
         confirmText={t('common.confirm') || t('common.close')}
         cancelText=""
+      />
+      <ConfirmDialog
+        isOpen={Boolean(promotePhase2Dialog)}
+        onClose={() => setPromotePhase2Dialog(null)}
+        onConfirm={() => {
+          const meta = promotePhase2Dialog || {};
+          setPromotePhase2Dialog(null);
+          return runGate2PromoteToPhase2(meta);
+        }}
+        title={t('requirements.gate2PromotePhase2Title') || 'Chuyển sang phase 2'}
+        message={
+          t('requirements.gate2PromotePhase2Desc') ||
+          'Import board từ kế hoạch HOW và chuyển dự án sang giai đoạn Phát triển. Bạn có thể hủy và làm sau.'
+        }
+        confirmText={t('requirements.gate2PromotePhase2Confirm') || 'Chuyển sang phase 2'}
+        cancelText={t('common.cancel') || 'Hủy'}
       />
     </div>
   );

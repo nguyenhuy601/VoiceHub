@@ -1,11 +1,11 @@
 /**
- * what.fr.* handlers — FR pipeline SoT is whatPhaseGraph frUnderstanding.
- * Job handler may use allowStandaloneFrGraph / invokeFn for tests only.
+ * what.fr.* handlers — FR SoT is WhatFrTool semantic section (frSectionHooks).
+ * Legacy conflict/synthesis job types redirect to the same one-shot derive.
  */
 
 const { JOB_TYPES } = require('../llmJobContract');
 
-async function runFrUnderstandingFromJob(job, opts = {}) {
+async function runFrSemanticFromJob(job, opts = {}) {
   const payload = job.payload || {};
   if (typeof opts.invokeFn === 'function') {
     return opts.invokeFn({
@@ -28,49 +28,47 @@ async function runFrUnderstandingFromJob(job, opts = {}) {
     };
   }
 
-  if (opts.allowStandaloneFrGraph !== true) {
-    const err = new Error(
-      'what.fr.* jobs must not standalone-invoke FR graph; use whatPhaseGraph frUnderstanding (or allowStandaloneFrGraph for tests).'
-    );
-    err.code = 'PHASE_GRAPH_ONLY';
-    throw err;
-  }
-
-  const { invokeFrUnderstandingStandalone } = require('../../engines/frUnderstanding');
-  const out = await invokeFrUnderstandingStandalone({
+  const { runFrSectionDerive } = require('../../semantic/frSectionHooks');
+  const out = await runFrSectionDerive({
     snapshot,
     pack: payload.pack || ctx.pack || {},
     env: opts.env || process.env,
     generateJsonFn: opts.generateJsonFn,
-    forceHeuristic: payload.forceHeuristic === true,
-    skipLlm: payload.skipLlm === true,
-    priorPartial:
-      payload.priorPartial ||
-      payload.understandingPartial ||
-      ctx.priorPartial ||
-      ctx.understandingPartial ||
-      null,
-    allowStandaloneFrGraph: true,
+    frOpts: {
+      forceHeuristic: payload.forceHeuristic === true,
+      skipLlm: payload.skipLlm === true,
+      priorPartial:
+        payload.priorPartial ||
+        payload.understandingPartial ||
+        ctx.priorPartial ||
+        ctx.understandingPartial ||
+        null,
+    },
+    runId: job.id || job.jobId || null,
   });
+
   return {
     ok: true,
     annotation: 'llm_proposal',
-    functionalRequirements: out?.functionalRequirements || [],
-    frUnderstanding: out?.frUnderstanding || out || null,
-    selection: out?.selection || null,
+    functionalRequirements: out?.proposalFragment?.items || out?.items || [],
+    frUnderstanding: out?.frUnderstanding || out?.semanticOutput || null,
+    proposalFragment: out?.proposalFragment || null,
+    meta: { ...(out?.meta || {}), redirectedFrom: job.jobType },
   };
 }
 
 async function handleWhatFrSemantic(job, opts = {}) {
-  return runFrUnderstandingFromJob(job, opts);
+  return runFrSemanticFromJob(job, opts);
 }
 
+/** @deprecated conflict stage removed — same semantic FR derive. */
 async function handleWhatFrConflict(job, opts = {}) {
-  return runFrUnderstandingFromJob(job, { ...opts, stage: 'conflict' });
+  return runFrSemanticFromJob(job, opts);
 }
 
+/** @deprecated synthesis stage removed — same semantic FR derive. */
 async function handleWhatFrSynthesis(job, opts = {}) {
-  return runFrUnderstandingFromJob(job, { ...opts, stage: 'synthesis' });
+  return runFrSemanticFromJob(job, opts);
 }
 
 handleWhatFrSemantic.jobType = JOB_TYPES.WHAT_FR_SEMANTIC;
@@ -81,5 +79,5 @@ module.exports = {
   handleWhatFrSemantic,
   handleWhatFrConflict,
   handleWhatFrSynthesis,
-  runFrUnderstandingFromJob,
+  runFrSemanticFromJob,
 };

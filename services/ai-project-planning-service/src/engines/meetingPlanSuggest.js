@@ -1,5 +1,5 @@
 /**
- * G3 — AI-assisted MeetingPlan suggestion from org rules + project duration.
+ * normalizeCatalog — AI-assisted MeetingPlan suggestion from org rules + project duration.
  * Does NOT create MeetingEvent or customer-confirmed schedules.
  */
 
@@ -33,7 +33,7 @@ function suggestMeetingPlanLines({
 }
 
 /**
- * Optional Event drafts (never status=confirmed customer) — G3 stub.
+ * Optional Event drafts (never status=confirmed customer) — normalizeCatalog stub.
  */
 function suggestEventDrafts({ titlePrefix = 'Suggested sync', slots = [] } = {}) {
   return (slots || []).map((slot, i) => ({

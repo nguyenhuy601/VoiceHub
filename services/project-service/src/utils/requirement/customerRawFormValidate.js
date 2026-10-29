@@ -1,7 +1,7 @@
 /**
  * Customer Raw workbook — form validation only (sheets + headers).
  * RULE-FORM-01 / RULE-NO-CONTENT-QUOTA-01: sheets+headers only (no content volume).
- * FR presence for G4 is enforced separately (assertRequiredIntakeSections / lazy prepare).
+ * FR presence for FR is enforced separately (assertRequiredIntakeSections / lazy prepare).
  */
 
 const XLSX = require('xlsx');

@@ -320,24 +320,59 @@ function pushRef(refs, sets, type, id) {
 
 function acceptSourceRefs(row, sets) {
   const refs = [];
+  const declaredUc = String(row?.sourceUcKey || '').trim();
+  const hasUcIntent =
+    Boolean(declaredUc) ||
+    (Array.isArray(row?.sourceRefs) &&
+      row.sourceRefs.some((r) => String(r?.type || '').toUpperCase() === 'UC'));
+
   if (Array.isArray(row?.sourceRefs) && row.sourceRefs.length) {
     for (const ref of row.sourceRefs) {
+      const kind = String(ref?.type || '').toUpperCase();
       const pushed = pushRef(refs, sets, ref?.type, ref?.id);
-      if (!pushed.ok) return pushed;
+      if (!pushed.ok) {
+        return {
+          ok: false,
+          reason: kind === 'UC' ? 'MISSING_REQUIRED_UC_REF' : 'INVALID_SOURCE_REF',
+          sourceUcKey: kind === 'UC' ? String(ref?.id || '') : undefined,
+        };
+      }
     }
   } else {
-    const sourceUcKey = String(row?.sourceUcKey || '').trim();
-    if (sourceUcKey) {
-      const pushed = pushRef(refs, sets, 'UC', sourceUcKey);
-      if (!pushed.ok) return pushed;
+    if (declaredUc) {
+      const pushed = pushRef(refs, sets, 'UC', declaredUc);
+      if (!pushed.ok) {
+        return { ok: false, reason: 'MISSING_REQUIRED_UC_REF', sourceUcKey: declaredUc };
+      }
     }
-    if (!Array.isArray(row?.sourceFrIds)) return { ok: false, reason: 'fr_not_in_allow' };
-    for (const id of row.sourceFrIds) {
+    const frIds = Array.isArray(row?.sourceFrIds) ? row.sourceFrIds : [];
+    const nfrIds = Array.isArray(row?.sourceNfrIds) ? row.sourceNfrIds : [];
+    const brIds = Array.isArray(row?.sourceBrIds) ? row.sourceBrIds : [];
+    const apiIds = Array.isArray(row?.sourceApiIds) ? row.sourceApiIds : [];
+    for (const id of frIds) {
       const pushed = pushRef(refs, sets, 'FR', id);
-      if (!pushed.ok) return { ...pushed, sourceFrIds: row.sourceFrIds };
+      if (!pushed.ok) return { ok: false, reason: 'INVALID_SOURCE_REF', sourceFrIds: frIds };
+    }
+    for (const id of nfrIds) {
+      const pushed = pushRef(refs, sets, 'NFR', id);
+      if (!pushed.ok) return { ok: false, reason: 'INVALID_SOURCE_REF' };
+    }
+    for (const id of brIds) {
+      const pushed = pushRef(refs, sets, 'BR', id);
+      if (!pushed.ok) return { ok: false, reason: 'INVALID_SOURCE_REF' };
+    }
+    for (const id of apiIds) {
+      const pushed = pushRef(refs, sets, 'API', id);
+      if (!pushed.ok) return { ok: false, reason: 'INVALID_SOURCE_REF' };
     }
   }
-  if (!refs.length) return { ok: false, reason: 'fr_not_in_allow' };
+
+  if (!refs.length) {
+    return { ok: false, reason: 'INVALID_SOURCE_REF' };
+  }
+  if (hasUcIntent && !refs.some((r) => r.type === 'UC')) {
+    return { ok: false, reason: 'MISSING_REQUIRED_UC_REF', sourceUcKey: declaredUc || undefined };
+  }
   return { ok: true, refs };
 }
 
@@ -361,17 +396,15 @@ function acceptTestCase(row, sets) {
   }
   const linked = acceptSourceRefs(row, sets);
   if (!linked.ok) return linked;
-  const preconditions = optionalStringList(row.preconditions);
-  const testData = acceptTestData(row.testData);
-  const steps = acceptSteps(row.steps);
-  if (!preconditions || !testData || !steps) {
-    return { ok: false, reason: 'testcase_steps_invalid', title };
-  }
+  const preconditions = optionalStringList(row.preconditions) || [];
+  const testData = acceptTestData(row.testData) || [];
+  const steps = acceptSteps(row.steps) || [];
   const sourceUcKey = linked.refs.find((ref) => ref.type === 'UC')?.id || '';
   const sourceFrIds = linked.refs.filter((ref) => ref.type === 'FR').map((ref) => ref.id);
   const gaps = [];
   if (!preconditions.length) gaps.push('preconditions');
   if (!testData.length) gaps.push('test_data');
+  if (!steps.length) gaps.push('steps');
   if (!testType) gaps.push('test_type');
   if (testLevel === 'nfr' && !testData.length) gaps.push('measurement');
   if (testData.some((item) => PLACEHOLDER_VALUE.test(item.value))) gaps.push('placeholder_data');
@@ -402,7 +435,72 @@ function acceptTestCase(row, sets) {
   };
 }
 
-function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
+/**
+ * Index blueprint WBS tasks for SoT stamps (no LLM invent).
+ * Prefer story/task leaf over epic/feature when multiple match an FR.
+ */
+function buildWbsLookup(planningTasks = []) {
+  const byFr = new Map();
+  const byUc = new Map();
+  const leafLevels = new Set(['story', 'task', 'subtask']);
+  const rank = (level) => (leafLevels.has(String(level || '').toLowerCase()) ? 0 : 1);
+  for (const t of Array.isArray(planningTasks) ? planningTasks : []) {
+    if (!t || typeof t !== 'object') continue;
+    const id = String(t.id || '').trim();
+    if (!id) continue;
+    const level = t.level;
+    const frIds = Array.isArray(t.sourceFrIds) ? t.sourceFrIds : [];
+    for (const fr of frIds) {
+      const k = String(fr || '').trim();
+      if (!k) continue;
+      const prev = byFr.get(k);
+      if (!prev || rank(level) < rank(prev.level)) byFr.set(k, { id, level });
+    }
+    const ucIds = Array.isArray(t.sourceUcIds) ? t.sourceUcIds : [];
+    const ucKey = String(t.sourceUcKey || ucIds[0] || '').trim();
+    if (ucKey) {
+      const prev = byUc.get(ucKey);
+      if (!prev || rank(level) < rank(prev.level)) byUc.set(ucKey, { id, level });
+    }
+  }
+  return { byFr, byUc };
+}
+
+function buildFrToUcFromPack(useCases = []) {
+  const map = new Map();
+  for (const uc of Array.isArray(useCases) ? useCases : []) {
+    if (!uc || typeof uc !== 'object') continue;
+    const ucKey = String(uc.externalId || uc.externalKey || uc.id || '').trim();
+    if (!ucKey) continue;
+    const related = Array.isArray(uc.relatedFrIds)
+      ? uc.relatedFrIds
+      : String(uc.relatedFr || '')
+          .split(/[,;]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+    for (const fr of related) {
+      const frKey = String(fr || '').trim();
+      if (frKey && !map.has(frKey)) map.set(frKey, ucKey);
+    }
+  }
+  return map;
+}
+
+function resolveLinkedWbsTaskId({ sourceUcKey, sourceFrIds }, wbsLookup) {
+  if (!wbsLookup) return null;
+  for (const fr of Array.isArray(sourceFrIds) ? sourceFrIds : []) {
+    const hit = wbsLookup.byFr.get(String(fr || '').trim());
+    if (hit?.id) return hit.id;
+  }
+  const uc = String(sourceUcKey || '').trim();
+  if (uc) {
+    const hit = wbsLookup.byUc.get(uc);
+    if (hit?.id) return hit.id;
+  }
+  return null;
+}
+
+function acceptQuality({ raw, facts, openQuestionsIn = [], container = null, pack = null } = {}) {
   const sets = allowSets(facts);
   const envAllow = [...(facts?.allowLists?.environments || [])];
   const rejectedInvent = [];
@@ -410,6 +508,9 @@ function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
   for (const q of raw?.openQuestions || []) {
     if (q?.message) openQuestions.push({ code: q.code || 'QUAL_OQ', message: clip(q.message) });
   }
+
+  const wbsLookup = buildWbsLookup(container?.planning?.tasks || []);
+  const frToUc = buildFrToUcFromPack(pack?.useCases || []);
 
   const catalogExtra = [];
   const usedIds = new Set();
@@ -422,6 +523,21 @@ function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
       continue;
     }
     const testCase = accepted.testCase;
+    let sourceUcKey = testCase.sourceUcKey || '';
+    const sourceFrIds = Array.isArray(testCase.sourceFrIds) ? testCase.sourceFrIds : [];
+    if (!sourceUcKey && sourceFrIds.length && frToUc.size) {
+      for (const fr of sourceFrIds) {
+        const derived = frToUc.get(String(fr || '').trim());
+        if (derived) {
+          sourceUcKey = derived;
+          break;
+        }
+      }
+    }
+    const linkedWbsTaskId = resolveLinkedWbsTaskId(
+      { sourceUcKey, sourceFrIds },
+      wbsLookup
+    );
     const refKey = testCase.sourceRefs.map((ref) => `${ref.type}:${ref.id}`).join(',');
     const signature = `${testCase.scenarioType}|${testCase.title.toLowerCase()}|${refKey}`;
     if (seenSignatures.has(signature)) {
@@ -443,8 +559,8 @@ function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
       testType: testCase.testType,
       scenarioType: testCase.scenarioType,
       priority: testCase.priority,
-      sourceUcKey: testCase.sourceUcKey,
-      sourceFrIds: testCase.sourceFrIds,
+      sourceUcKey,
+      sourceFrIds,
       sourceRefs: testCase.sourceRefs,
       preconditions: testCase.preconditions,
       testData: testCase.testData,
@@ -454,11 +570,14 @@ function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
       completeness: executable ? 'executable' : 'incomplete',
       missingInformation: testCase.missingInformation,
       confirmationGaps: testCase.confirmationGaps,
-      linkedWbsTaskId: null,
+      linkedWbsTaskId,
       automate: false,
       provenance: { type: 'AI', source: 'quality_sec_tool_llm' },
     });
   }
+
+  const executableCount = catalogExtra.filter((e) => e.completeness === 'executable').length;
+  const incompleteCount = catalogExtra.length - executableCount;
 
   const qualityPlan = {
     testStrategy: {
@@ -471,17 +590,32 @@ function acceptQuality({ raw, facts, openQuestionsIn = [] }) {
     meta: {
       source: catalogExtra.length ? 'fact_llm' : 'empty',
       llmCatalogAdded: catalogExtra.length,
-      rejectedInvent,
+      executableCount,
+      incompleteCount,
+      rejectedInvent: rejectedInvent.map((r) => ({
+        ...r,
+        reasonCode: require('../../validation/qualityCoverageGate').mapQualityAcceptReason(
+          r.reason
+        ),
+      })),
       inventEnvForbidden: true,
     },
+  };
+
+  const { stampQualityCoverageMeta } = require('../../validation/qualityCoverageGate');
+  const stamped = stampQualityCoverageMeta(qualityPlan);
+  stamped.meta = {
+    ...(stamped.meta || {}),
+    executableCount,
+    incompleteCount,
   };
 
   return {
     status: 'ready',
     model: null,
     generatedAt: new Date().toISOString(),
-    qualityPlan,
-    meta: qualityPlan.meta,
+    qualityPlan: stamped,
+    meta: stamped.meta,
   };
 }
 
@@ -540,6 +674,8 @@ function buildQualitySecGraph() {
     const result = acceptQuality({
       raw: proposed.ok ? proposed.data : { catalogPlan: [] },
       facts: s.facts,
+      container: s.container || null,
+      pack: s.pack || null,
       openQuestionsIn: [
         ...(sem.openQuestions || []),
         ...(sem.ok ? [] : [{ code: 'QUAL_SEMANTIC_INCOMPLETE', message: (sem.missingSlots || []).join(',') }]),
@@ -582,6 +718,8 @@ module.exports = {
   runQualitySecGraph,
   buildQualitySemantic,
   acceptQuality,
+  buildWbsLookup,
+  resolveLinkedWbsTaskId,
   isQualityPlanStructurallyOk,
   resolveQualityLlmTimeoutMs,
   resolveQualityToolTimeoutMs,

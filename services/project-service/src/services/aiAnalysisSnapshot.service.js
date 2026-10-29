@@ -449,7 +449,7 @@ async function createOrReuseAiAnalysisSnapshot({
   pack.aiAnalysisSnapshotMeta = toMeta(snapshot);
   pack.markModified('aiAnalysisSnapshotMeta');
 
-  // Pin versioned skill catalog stub for Stage1 readiness / G2 supplement (additive).
+  // Pin versioned skill catalog stub for Stage1 readiness / sourceManifest supplement (additive).
   if (!pack.aiAnalysis || typeof pack.aiAnalysis !== 'object') {
     pack.aiAnalysis = {};
   }
@@ -553,8 +553,8 @@ function packSnapshotFrAligned(pack, snapshotDoc) {
 
 /**
  * Load active snapshot or create/reuse one — pack already known; no pack re-select.
- * refreshOnFrDrift is for prepare, after FR are persisted. G4 must not pass it:
- * a drifted snapshot at G4 time stays a mismatch.
+ * refreshOnFrDrift is for prepare, after FR are persisted. FR must not pass it:
+ * a drifted snapshot at FR time stays a mismatch.
  * @returns {{ pack, snapshotDoc, snapshotId, meta }}
  */
 async function ensureActiveAiAnalysisSnapshot({

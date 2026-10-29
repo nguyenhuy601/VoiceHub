@@ -9,7 +9,7 @@ function unwrap(res) {
 }
 
 /**
- * G1 — MeetingPlan seed / view (forecast hours by week × role).
+ * catalog — MeetingPlan seed / view (forecast hours by week × role).
  * Commitment % stays on ProjectMember — not edited here.
  */
 export default function MeetingPlanPanel({ projectId }) {

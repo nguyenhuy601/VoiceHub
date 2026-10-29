@@ -1,5 +1,5 @@
 /**
- * G16 Feedback parser — requirement_feedback vs planning_feedback + impact scope.
+ * selective replan Feedback parser — requirement_feedback vs planning_feedback + impact scope.
  * Gate2 reject default: resource + schedule (Loop2 Who×When).
  * Structure keywords → WBS/structure scope.
  */

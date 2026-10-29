@@ -1,5 +1,5 @@
 /**
- * Lazy client for redis-lg only. App Redis (auth / G15) is never used.
+ * Lazy client for redis-lg only. App Redis (auth / agentCheckpoint) is never used.
  */
 
 const Redis = require('ioredis');

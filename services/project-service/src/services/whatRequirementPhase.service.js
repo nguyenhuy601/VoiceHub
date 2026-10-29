@@ -45,7 +45,7 @@ function persistFormValidationOnPack(pack, formValidation) {
 
 /**
  * Hydrate pack.aiAnalysis.formValidation from ImportSet or customer_raw buffer.
- * RULE-FORM-01: form validation may hydrate before FR prepare; G4 still requires FR via
+ * RULE-FORM-01: form validation may hydrate before FR prepare; FR still requires FR via
  * ensurePreparedIntakeForWhat + assertRequiredIntakeSections.
  */
 async function ensureFormValidationOnPack(pack) {
@@ -251,7 +251,7 @@ async function rebuildRequirementToolsAfterMaterialize(pack) {
 }
 
 /**
- * Lazy intake prepare before phase_what G4 when formOk (or raw intake) but FR still empty.
+ * Lazy intake prepare before phase_what FR when formOk (or raw intake) but FR still empty.
  * Does not run LLM. Caller must re-read pack after didPrepare=true.
  *
  * @returns {Promise<{ didPrepare: boolean, validFr: number }>}
@@ -559,7 +559,7 @@ async function prepareAutoConfirm(pack, job) {
 
 /**
  * Background runner — REMOVED job-by-job WHAT loop (RULE-JJ-01).
- * Legacy entry marks phase_what failed; use phase_what G4 remote instead.
+ * Legacy entry marks phase_what failed; use phase_what FR remote instead.
  */
 async function runWhatRequirementPhaseBackground({
   userId,
@@ -582,7 +582,7 @@ async function runWhatRequirementPhaseBackground({
     durationMs: Math.max(0, Date.now() - startedAt),
     error: {
       code: 'JOB_BY_JOB_REMOVED',
-      message: 'Legacy WHAT job loop removed — use phase_what G4 via phase-run',
+      message: 'Legacy WHAT job loop removed — use phase_what FR via phase-run',
     },
   });
   pack.aiAnalysis = container;

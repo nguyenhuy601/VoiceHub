@@ -1,5 +1,5 @@
 /**
- * WBS semantic slim — FR ids cited on Gate1 stories plus G4 capability/intent.
+ * WBS semantic slim — FR ids cited on Gate1 stories plus FR capability/intent.
  */
 
 const {
@@ -14,7 +14,7 @@ function clip(value, max) {
 }
 
 /**
- * Semantic slim for WBS — FR ids cited on Gate1 stories + G4 capability/intent.
+ * Semantic slim for WBS — FR ids cited on Gate1 stories + FR capability/intent.
  * Does not invent FR units or pull full SRS pack into the prompt path.
  *
  * @param {{

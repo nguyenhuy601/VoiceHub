@@ -229,6 +229,8 @@ const requirementPackSchema = new mongoose.Schema(
     /** Analysis workbook optional sheets — Mixed so seed can copy full structured rows */
     interfaces: { type: [mongoose.Schema.Types.Mixed], default: [] },
     dataEntities: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    /** WHAT actors overlay (Gate2 field map) — Mixed like dataEntities */
+    actors: { type: [mongoose.Schema.Types.Mixed], default: [] },
     glossary: { type: [mongoose.Schema.Types.Mixed], default: [] },
     aiAnalysisStatus: {
       type: String,

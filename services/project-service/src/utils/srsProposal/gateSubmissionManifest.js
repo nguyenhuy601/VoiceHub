@@ -14,7 +14,7 @@ function newSubmissionId() {
 function newReviewId() {
   const ts = Date.now().toString(36);
   const rnd = crypto.randomBytes(4).toString('hex');
-  return `G1-REV-${ts}-${rnd}`;
+  return `knowledgeCatalog-REV-${ts}-${rnd}`;
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * G17 — LLM generate wrapper (JSON extract + usage meta).
+ * LLM runtime — LLM generate wrapper (JSON extract + usage meta).
  * Providers: ollama (/api/generate) | openai_compatible (DashScope chat.completions).
  */
 

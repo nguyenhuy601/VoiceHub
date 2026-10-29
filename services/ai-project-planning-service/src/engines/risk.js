@@ -19,11 +19,15 @@ function applyRiskToContainer(container, riskResult) {
     ...container,
     analyses: { ...(container?.analyses || {}) },
   };
+  const items = riskResult.items || riskResult.risks || [];
   next.analyses.risk = {
     status: riskResult.status || 'ready',
     model: riskResult.model || null,
     generatedAt: riskResult.generatedAt || new Date().toISOString(),
-    items: riskResult.items || riskResult.risks || [],
+    items,
+    risks: items,
+    maxSeverity: riskResult.maxSeverity ?? null,
+    openQuestions: Array.isArray(riskResult.openQuestions) ? riskResult.openQuestions : [],
     entities: [],
     edges: [],
     dataFlows: [],

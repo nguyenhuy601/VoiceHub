@@ -9,7 +9,7 @@ function unwrap(res) {
 }
 
 /**
- * G1 — list / create / cancel MeetingEvent (manual).
+ * catalog — list / create / cancel MeetingEvent (manual).
  */
 export default function ProjectMeetingsPanel({ projectId }) {
   const { t } = useAppStrings();

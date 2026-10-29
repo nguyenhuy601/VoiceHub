@@ -2,7 +2,7 @@
  * FE mirror of project-service analysisArtifactFieldCatalog (đủ kind RA).
  * Keep keys in sync with BE — do not invent AI fields.
  *
- * G3 / DEC-5: PRIMARY = workbook columns (always on form).
+ * DEC-5: PRIMARY = workbook columns (always on form).
  * LEGACY = seed/trace/extra — ẩn khi DB trống; vẫn hydrate + PATCH.
  */
 
@@ -230,14 +230,14 @@ export function listCatalogKinds() {
   return Object.keys(CATALOG);
 }
 
-/** Legacy form fields — ẩn khi DB trống (DEC-5 / G3). */
+/** Legacy form fields — ẩn khi DB trống (DEC-5). */
 export function isLegacyFormField(field) {
   return Boolean(field?.legacy);
 }
 
 /**
  * Soft-trace keys (DEC R3) — luôn hiện để BA gắn related kể cả khi DB trống.
- * Không áp dụng hide-empty của G3 (khác whenApplies / dataEntities / …).
+ * Không áp dụng hide-empty legacy (khác whenApplies / dataEntities / …).
  */
 const SOFT_TRACE_FIELD_KEYS = new Set([
   'relatedUcKeys',
@@ -289,7 +289,7 @@ function isFrHierarchyLevel(st) {
 }
 
 /**
- * PRIMARY + soft-trace luôn hiện; LEGACY nội dung khác chỉ hiện khi DB có giá trị (G3).
+ * PRIMARY + soft-trace luôn hiện; LEGACY nội dung khác chỉ hiện khi DB có giá trị (legacy empty-hide).
  * FR hierarchy: ẩn field chi tiết trống (tránh form “trắng” trên Module/Capability/Feature).
  * @param {string} kind
  * @param {object} [artifact]

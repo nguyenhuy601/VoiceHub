@@ -18,7 +18,7 @@ const TOOL_BLURBS = Object.freeze({
   ArchitectureTool: 'Architecture impact (sec subgraph)',
   DeployPlanTool: 'Deploy/release plan (sec subgraph)',
   EffortTool: 'Effort & roles (sec subgraph)',
-  [WHAT_FR_TOOL]: 'WHAT FR: propose / G4 / decompose',
+  [WHAT_FR_TOOL]: 'WHAT FR: propose / FR / decompose',
 });
 
 function howPhaseToolNames() {

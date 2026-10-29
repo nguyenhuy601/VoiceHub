@@ -1,5 +1,5 @@
 /**
- * G16 selective re-plan — map impactScope → HOW tool steps by toolName (RULE-PO-05).
+ * selective replan selective re-plan — map impactScope → HOW tool steps by toolName (RULE-PO-05).
  * HARD-01: ProjectPlanTool never autoConfirm.
  * HARD-02: one impactScope resolution per Loop2 (single path).
  */

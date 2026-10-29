@@ -1,6 +1,6 @@
 /**
- * Compact G7 citations for WHAT LLM prompts.
- * One switch (G7_RAG_MODE) retrieves once; every WHAT LLM section reads this block.
+ * Compact RAG citations for WHAT LLM prompts.
+ * One switch (RAG_MODE) retrieves once; every WHAT LLM section reads this block.
  */
 
 const DEFAULT_MAX_ITEMS = 6;

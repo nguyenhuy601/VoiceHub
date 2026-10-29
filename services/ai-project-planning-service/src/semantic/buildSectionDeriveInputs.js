@@ -1,5 +1,5 @@
 /**
- * Per-section derive inputs — full semantic context (FR full + G4 + evidence + locale).
+ * Per-section derive inputs — full semantic context (FR full + FR + evidence + locale).
  * Avoid aggressive FR slim that drops description/AC.
  */
 

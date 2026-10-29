@@ -19,7 +19,7 @@ const planningRunSchema = new mongoose.Schema(
     packId: { type: String, default: null, maxlength: 128, index: true },
     organizationId: { type: String, default: null, maxlength: 128, index: true },
     snapshotId: { type: String, required: true, maxlength: 128, immutable: true, index: true },
-    /** Loop1 lineage — parent WHAT runId (scalar only; G15 remains AgentState SoT). */
+    /** Loop1 lineage — parent WHAT runId (scalar only; checkpoint remains AgentState SoT). */
     parentRunId: { type: String, default: null, maxlength: 128, index: true },
     /** Proposal-generation identity; currently 1 run = 1 generation (= String(_id)). */
     generationId: { type: String, default: null, maxlength: 128 },
@@ -54,11 +54,11 @@ const planningRunSchema = new mongoose.Schema(
     completedAt: { type: Date, default: null },
     error: { type: mongoose.Schema.Types.Mixed, default: null },
     /**
-     * @deprecated G15 AgentState SoT is Redis (`vh:ai-plan:g15:{runId}`).
+     * @deprecated checkpoint AgentState SoT is Redis (`vh:ai-plan:checkpoint:{runId}`).
      * Field retained for legacy docs; do not write new checkpoints here.
      */
     checkpoint: { type: mongoose.Schema.Types.Mixed, default: null },
-    /** Metadata only — last successful G15 Redis save (not AgentState body). */
+    /** Metadata only — last successful checkpoint Redis save (not AgentState body). */
     lastCheckpointAt: { type: Date, default: null },
     lastFeedback: { type: mongoose.Schema.Types.Mixed, default: null },
     job: { type: String, default: null, maxlength: 64, index: true },

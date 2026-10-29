@@ -9,7 +9,7 @@ const {
   scopeContainerTasksByContext,
 } = require('../semanticLayer/howToolContext');
 
-/** G10 Sequencing / CPM — hours already on WBS leaves. No effort invent. */
+/** Schedule Sequencing / CPM — hours already on WBS leaves. No effort invent. */
 async function sequencing(input = {}, context = {}) {
   const snapshotId = input.snapshotId || input.id || null;
   const pack = context.pack || input.pack || {};

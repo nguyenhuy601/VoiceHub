@@ -1,5 +1,5 @@
 /**
- * G7 hybrid retrieve — merge keyword BM25-lite ∪ stub substring (Step 4).
+ * RAG hybrid retrieve — merge keyword BM25-lite ∪ stub substring (Step 4).
  * No vector / Qdrant. Dedupe by sourceId; keep higher score.
  */
 

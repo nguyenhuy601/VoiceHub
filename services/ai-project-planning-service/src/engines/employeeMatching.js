@@ -399,7 +399,7 @@ function buildFteFromPlanning(container) {
 }
 
 /**
- * Demand (effort.byRole) vs supply (pool available hours) — Gate2 Capacity / G13 hard-gate.
+ * Demand (effort.byRole) vs supply (pool available hours) — Gate2 Capacity / feasibility hard-gate.
  * @param {{ container?: object, pool?: object[], matching?: object, hardGateSummary?: object }} input
  */
 function buildCapacityPlan({
@@ -450,7 +450,7 @@ function buildCapacityPlan({
     unassignedCount,
     overloadCount,
     hardGateSummary: hardGateSummary || null,
-    /** Hard-gate: gap or unassigned/overload — G13 resourceOk must fail when matching ran */
+    /** Capacity pressure signal — FEAS_RESOURCE is soft at Gate 2 (does not flip feasibility.pass). */
     hardGate: totalGapHours > 0 || unassignedCount > 0 || overloadCount > 0,
   };
 }

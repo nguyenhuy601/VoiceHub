@@ -60,7 +60,7 @@ function takeFrFull(pack, opts = {}) {
       pack: packForCompile(pack, opts),
       snapshot: opts.snapshot,
       container: opts.container,
-      understanding: opts.frUnderstanding || opts.g4Understanding || opts.understanding,
+      understanding: opts.frUnderstanding || opts.understanding,
       focusRefs: opts.focusRefs,
       budget: opts.budget,
     })
@@ -118,9 +118,9 @@ function takeBrqFull(pack, opts = {}, max = 30) {
 }
 
 /**
- * G4 delta only — capability/intent already on frFull; do not re-dump requirements/semanticItems.
+ * Understanding delta only — capability/intent already on frFull; do not re-dump requirements/semanticItems.
  */
-function takeRequirementUnderstanding(g4, max = 24) {
+function takeRequirementUnderstanding(understanding, max = 24) {
   if (!g4 || typeof g4 !== 'object') return null;
   const ambiguities = [];
   for (const r of asArray(g4.requirements).slice(0, max)) {
@@ -152,7 +152,7 @@ function takeRequirementUnderstanding(g4, max = 24) {
   };
 }
 
-function takeEvidenceRefs(evidence, g4, max = 24) {
+function takeEvidenceRefs(evidence, understanding, max = 24) {
   return asArray(evidence || g4?.evidence)
     .slice(0, max)
     .map((ev, i) => {
@@ -229,7 +229,7 @@ function toDerivePromptPayload(input) {
  * @param {{ proposal?: object, frUnderstanding?: object, evidence?: object[], snapshot?: object, locale?: string }} [opts]
  */
 function buildSemanticDeriveContext(pack, opts = {}) {
-  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
+  const understanding = opts.frUnderstanding || opts.understanding || null;
   const locale = normalizeDeriveLocale(opts.locale || pack?.aiAnalysis?.deriveLocale || 'vi');
   const { formatRetrievedContext } = require('../retrieval/formatRetrievedContext');
   const { compileContext } = require('../dataPlane/compileContext');
@@ -262,7 +262,7 @@ function buildSemanticDeriveContext(pack, opts = {}) {
     contextCoverage: compiled.coverage,
     annotations: compiled.annotations,
     brqFull: takeBrqFull(pack, opts, 30),
-    requirementUnderstanding: takeRequirementUnderstanding(g4, 24),
+    requirementUnderstanding: takeRequirementUnderstanding(understanding, 24),
     evidenceRefs: takeEvidenceRefs(opts.evidence, g4, 24),
     retrievedContext: retrieved.items.length ? retrieved.items : undefined,
   };

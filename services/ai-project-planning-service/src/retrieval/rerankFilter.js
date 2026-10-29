@@ -1,8 +1,8 @@
 /**
- * G7 rerank + filter step — score sort, topK, RULE-C1 corpus id filter.
+ * RAG rerank + filter step — score sort, topK, RULE-C1 corpus id filter.
  */
 
-const { filterCitationsToCorpus } = require('./g7PipelineSchemas');
+const { filterCitationsToCorpus } = require('./ragPipelineSchemas');
 const { SNIPPET_MAX } = require('./retrieveStub');
 
 const DEFAULT_TOP_K = 5;

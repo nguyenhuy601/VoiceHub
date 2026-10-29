@@ -1,4 +1,4 @@
-/** PlanningItem type/status — constants + normalize (G3). */
+/** PlanningItem type/status — constants + normalize (normalizeCatalog). */
 
 const { slugPriorityKey } = require('../project/priorityConfig');
 

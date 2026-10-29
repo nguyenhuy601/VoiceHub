@@ -1,6 +1,6 @@
 /**
  * Track B — Agent budget / timeout / stop (Layer B, pure-JS; ≠ LangGraph F2).
- * G8 Evaluate decides CONTINUE|RETRIEVE|NEED_TOOL; budget can force STOP.
+ * evaluate Evaluate decides CONTINUE|RETRIEVE|NEED_TOOL; budget can force STOP.
  */
 
 const DEFAULT_MAX_ITERATIONS = 50;

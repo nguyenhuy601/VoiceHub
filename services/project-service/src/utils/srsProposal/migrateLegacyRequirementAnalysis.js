@@ -1,6 +1,6 @@
 /**
- * Migrate legacy G4 / requirement analysis → srsProposal projection.
- * Rename of legacy mapping: migrateLegacyRequirementAnalysis.
+ * Map transient FR understanding engine output → srsProposal projection.
+ * Used on APS→project callback only — does not read/write pack analyses blobs.
  *
  * Mapping:
  * - requirements → functionalRequirements.items
@@ -19,7 +19,7 @@ const { frLogicalId } = require('./logicalId');
  * @param {{ generationId?: string, source?: string }} [opts]
  */
 function migrateLegacyRequirementAnalysis(legacyG4, opts = {}) {
-  const g4 = legacyG4 && typeof legacyG4 === 'object' ? legacyG4 : {};
+  const g4 = legacyFR && typeof legacyFR === 'object' ? legacyFR : {};
   const requirements = Array.isArray(g4.requirements) ? g4.requirements : [];
   const relationships = Array.isArray(g4.relationships) ? g4.relationships : [];
   const ambiguities = Array.isArray(g4.ambiguities) ? g4.ambiguities : [];
@@ -67,7 +67,7 @@ function migrateLegacyRequirementAnalysis(legacyG4, opts = {}) {
       evidence: g4.evidence || null,
       meta: {
         ...(g4.meta || {}),
-        migratedFrom: 'g4Understanding',
+        migratedFrom: 'frUnderstanding_engine',
         // synthesis intentionally omitted from FR section
       },
     },

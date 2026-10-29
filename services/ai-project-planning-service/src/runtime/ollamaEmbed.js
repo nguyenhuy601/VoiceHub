@@ -1,5 +1,5 @@
 /**
- * G17 — Embeddings for G7 RAG.
+ * LLM runtime — Embeddings for RAG RAG.
  * - LLM_PROVIDER=ollama → Ollama /api/embeddings|/api/embed
  * - LLM_PROVIDER=dashscope|openai_compatible → DashScope OpenAI-compatible /embeddings
  */
@@ -23,14 +23,14 @@ function embedModel(env = process.env) {
     return remoteEmbedModel(env, DEFAULT_REMOTE_EMBED_MODEL);
   }
   return (
-    String(env.G7_EMBEDDING_MODEL || env.OLLAMA_EMBED_MODEL || DEFAULT_EMBED_MODEL).trim() ||
+    String(env.RAG_EMBEDDING_MODEL || env.OLLAMA_EMBED_MODEL || DEFAULT_EMBED_MODEL).trim() ||
     DEFAULT_EMBED_MODEL
   );
 }
 
 function embedVersion(env = process.env) {
   if (isOpenAiCompatibleProvider(env)) {
-    const v = String(env.G7_EMBEDDING_VERSION || '').trim();
+    const v = String(env.RAG_EMBEDDING_VERSION || '').trim();
     // Ignore leftover Ollama version strings when on DashScope.
     if (v && !v.startsWith('ollama-')) {
       return v;
@@ -38,7 +38,7 @@ function embedVersion(env = process.env) {
     return DEFAULT_REMOTE_EMBED_VERSION;
   }
   return (
-    String(env.G7_EMBEDDING_VERSION || DEFAULT_EMBED_VERSION).trim() || DEFAULT_EMBED_VERSION
+    String(env.RAG_EMBEDDING_VERSION || DEFAULT_EMBED_VERSION).trim() || DEFAULT_EMBED_VERSION
   );
 }
 
@@ -96,7 +96,7 @@ async function embedText(opts = {}) {
     };
   }
 
-  const timeout = Number(env.G7_EMBED_TIMEOUT_MS || 60000);
+  const timeout = Number(env.RAG_EMBED_TIMEOUT_MS || 60000);
   const httpOpts = { timeout, validateStatus: () => true };
 
   try {

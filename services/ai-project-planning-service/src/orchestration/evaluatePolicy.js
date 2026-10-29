@@ -1,7 +1,7 @@
 /**
- * G8 Evaluate policy — decide CONTINUE | RETRIEVE | NEED_TOOL (pure-JS, Wave F / Track B).
- * Does not compute business metrics (≠ G13).
- * Optional JEV3 advisory when JEV_CONTROL=1 (RULE-12 — never replaces G13).
+ * evaluate Evaluate policy — decide CONTINUE | RETRIEVE | NEED_TOOL (pure-JS, Wave F / Track B).
+ * Does not compute business metrics (≠ feasibility).
+ * Optional JEV3 advisory when JEV_CONTROL=1 (RULE-12 — never replaces feasibility).
  */
 
 /**

@@ -23,8 +23,8 @@ const AI_ANALYSIS_USER_JOBS = Object.freeze([
 ]);
 
 /** ADR 0003 — WHAT jobs (Requirement Analysis path)
- * Under WHAT_G4_ENABLED (default): shells only — confirmed at Gate1 after remote G4.
- * Do not run these via runAiAnalysisJob; use phase_what G4 instead.
+ * Shells only — confirmed at Gate1 after remote APS phase_what.
+ * Do not run these via runAiAnalysisJob; use phase_what instead.
  */
 const AI_ANALYSIS_WHAT_JOBS = Object.freeze([
   'hierarchyDecomposition',

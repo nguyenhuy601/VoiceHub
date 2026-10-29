@@ -208,7 +208,7 @@ function mapItem(row, section, index, epicById = null) {
 
 
 /**
- * @param {{ proposal?: object, g4?: object, pack?: object, section?: string|null }} opts
+ * @param {{ proposal?: object, pack?: object, section?: string|null }} opts
  * @returns {{
  *   items: object[],
  *   sections: object[],
@@ -219,7 +219,6 @@ function mapItem(row, section, index, epicById = null) {
  */
 export function buildGate1ProposalItems(opts = {}) {
   const proposal = opts.proposal || null;
-  const g4 = opts.g4 || null;
   const pack = opts.pack || null;
   const filterSection = opts.section || null;
 
@@ -257,12 +256,11 @@ export function buildGate1ProposalItems(opts = {}) {
 
   // FR may be empty while other sections exist (empty fragment wiped FR). Always backfill FR.
   if (!(bySection.functionalRequirements || []).length) {
-    const g4Reqs = Array.isArray(g4?.requirements) ? g4.requirements : [];
     const frs = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
     const gateRows = Array.isArray(pack?.liveRun?.gatePreview?.rows)
       ? pack.liveRun.gatePreview.rows
       : [];
-    const source = g4Reqs.length ? g4Reqs : frs.length ? frs : gateRows;
+    const source = frs.length ? frs : gateRows;
     if (source.length) {
       bySection.functionalRequirements = source.map((row, i) =>
         mapItem(row, 'functionalRequirements', i, epicById)

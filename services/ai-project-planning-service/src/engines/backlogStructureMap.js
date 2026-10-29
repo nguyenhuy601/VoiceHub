@@ -50,8 +50,8 @@ function resolveApprovedBacklogStructure(opts = {}) {
  */
 function mapApprovedStructureToBacklog(structure) {
   const epicsIn = Array.isArray(structure?.epics) ? structure.epics : [];
+  const featuresIn = Array.isArray(structure?.features) ? structure.features : [];
   const storiesIn = Array.isArray(structure?.stories) ? structure.stories : [];
-
   const epics = [];
   const epicIds = new Set();
   for (const e of epicsIn) {
@@ -71,6 +71,30 @@ function mapApprovedStructureToBacklog(structure) {
     });
   }
 
+  const features = [];
+  const featureIds = new Set();
+  for (const f of featuresIn) {
+    const id = normalizeRef(f?.id);
+    if (!id) continue;
+    if (featureIds.has(id)) continue;
+    featureIds.add(id);
+    const parentEpicRaw =
+      f.parentEpicId === undefined || f.parentEpicId === null || f.parentEpicId === ''
+        ? null
+        : normalizeRef(f.parentEpicId);
+    const parentEpicId = parentEpicRaw
+      ? stripChunkIdPrefix(parentEpicRaw) || parentEpicRaw
+      : null;
+    features.push({
+      id,
+      name: String(f.name || f.title || id).trim().slice(0, 240),
+      parentId: parentEpicId && epicIds.has(parentEpicId) ? parentEpicId : null,
+      level: 'feature',
+      sourceFrIds: Array.isArray(f.sourceFrIds) ? f.sourceFrIds.map(String) : [],
+      storyIds: Array.isArray(f.storyIds) ? f.storyIds.map(String) : [],
+    });
+  }
+
   const stories = [];
   const coveredFr = new Set();
   for (const s of storiesIn) {
@@ -82,6 +106,13 @@ function mapApprovedStructureToBacklog(structure) {
     if (!sourceFrIds.length) continue;
     for (const fr of sourceFrIds) coveredFr.add(fr);
 
+    const parentFeatureRaw =
+      s.parentFeatureId === undefined || s.parentFeatureId === null || s.parentFeatureId === ''
+        ? null
+        : normalizeRef(s.parentFeatureId);
+    const parentFeatureId =
+      parentFeatureRaw && featureIds.has(parentFeatureRaw) ? parentFeatureRaw : null;
+
     let parentId = null;
     const parentRaw =
       s.parentEpicId === undefined || s.parentEpicId === null || s.parentEpicId === ''
@@ -90,18 +121,22 @@ function mapApprovedStructureToBacklog(structure) {
     const parentEpicId = parentRaw
       ? stripChunkIdPrefix(parentRaw) || parentRaw
       : null;
-    if (parentEpicId && epicIds.has(parentEpicId)) {
+    if (parentFeatureId) {
+      parentId = parentFeatureId;
+    } else if (parentEpicId && epicIds.has(parentEpicId)) {
       parentId = parentEpicId;
     } else if (parentEpicId && !epicIds.has(parentEpicId)) {
-      // Orphan epic ref — promote story under synthetic? Prefer null parent (root story).
+      // Orphan epic ref — prefer null parent (root / independent story).
       parentId = null;
     }
 
     stories.push({
       id,
-      name: String(s.name || id).trim().slice(0, 240),
+      name: String(s.name || s.title || id).trim().slice(0, 240),
       description: String(s.description || '').trim(),
       parentId,
+      parentFeatureId: parentFeatureId || null,
+      parentEpicId: parentFeatureId ? null : parentEpicId && epicIds.has(parentEpicId) ? parentEpicId : null,
       level: 'story',
       sourceFrIds,
       sourceUcIds: Array.isArray(s.sourceUcIds)
@@ -123,14 +158,19 @@ function mapApprovedStructureToBacklog(structure) {
 
   const backlog = {
     epics,
-    features: [],
+    features,
     stories,
     unmappedFrIds,
+    coverageByFrId: structure?.coverageByFrId || undefined,
+    coverageByAcRef: structure?.coverageByAcRef || undefined,
     meta: {
       source: 'approved_backlog_structure',
+      shapeVersion: structure?.meta?.shapeVersion || undefined,
+      approvedBaselineVersion: structure?.meta?.approvedBaselineVersion || undefined,
+      sourceSnapshotVersion: structure?.meta?.sourceSnapshotVersion || undefined,
       storyCount: stories.length,
       epicCount: epics.length,
-      featureCount: 0,
+      featureCount: features.length,
       frCoveredCount: coveredFr.size,
       unmappedCount: unmappedFrIds.length,
       nfrAnalysis: false,

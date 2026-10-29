@@ -45,7 +45,7 @@ function finalizePlanNode(state) {
   const updated = applyProjectPlanToContainer(container, engineResult);
 
   const planVersion = `pv-${String(state.runId || 'run').slice(-8)}-${Date.now().toString(36)}`;
-  const manifest = {
+  const baseManifest = {
     planVersion,
     snapshotId: state.snapshotId || null,
     status: 'ready_for_review',
@@ -58,6 +58,15 @@ function finalizePlanNode(state) {
     },
     generatedAt: new Date().toISOString(),
   };
+  const { enrichPlanManifestWithRevisions } = require('../planningRevision/planManifest');
+  const validationRunId =
+    state.feasibility?.runId ||
+    state.feasibilitySignal?.runId ||
+    state.runId ||
+    null;
+  const manifest = enrichPlanManifestWithRevisions(baseManifest, updated, {
+    validationRunId,
+  });
 
   return {
     container: updated,

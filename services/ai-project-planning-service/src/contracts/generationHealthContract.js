@@ -58,7 +58,7 @@ function mergeGenerationHealth(prev, next) {
 }
 
 /**
- * Map G4 / phaseOut meta signals into a generationHealth patch.
+ * Map FR / phaseOut meta signals into a generationHealth patch.
  * @param {{ partial?: boolean, failedTasks?: string[], coverage?: object, llmFailed?: boolean, task?: string }} meta
  */
 function buildGenerationHealthFromMeta(meta = {}) {

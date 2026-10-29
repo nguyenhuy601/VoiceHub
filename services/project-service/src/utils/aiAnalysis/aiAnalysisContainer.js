@@ -308,11 +308,7 @@ function ensureAiAnalysisContainer(raw) {
   if (preSrc && typeof preSrc === 'object') {
     analyses.preApproval = preSrc;
   }
-  const g4Src = working.analyses?.g4Understanding;
-  if (g4Src && typeof g4Src === 'object') {
-    // Legacy read-only preserve for old packs — new runs must not write this field
-    analyses.g4Understanding = g4Src;
-  }
+  // analyses.g4Understanding / frUnderstanding retired — never copy into container
   const srsProposalSrc = working.analyses?.srsProposal;
   if (srsProposalSrc && typeof srsProposalSrc === 'object') {
     analyses.srsProposal = srsProposalSrc;
@@ -389,7 +385,7 @@ function ensureAiAnalysisContainer(raw) {
       working.phaseRuns && typeof working.phaseRuns === 'object' ? working.phaseRuns : {},
   };
 
-  // G3 / G6 thin fields — preserve if present; stamp ingestion once
+  // normalizeCatalog / canonicalSrs thin fields — preserve if present; stamp ingestion once
   if (working.ingestionRunId != null && String(working.ingestionRunId).trim()) {
     out.ingestionRunId = String(working.ingestionRunId).trim();
   } else {

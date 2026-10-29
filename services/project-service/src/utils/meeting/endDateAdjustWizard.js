@@ -1,5 +1,5 @@
 /**
- * G2 — preview future MeetingEvent / plan lines affected by project end-date change.
+ * sourceManifest — preview future MeetingEvent / plan lines affected by project end-date change.
  * Does not write — PM confirms apply separately.
  */
 

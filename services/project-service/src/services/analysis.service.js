@@ -1187,10 +1187,12 @@ async function seedArtifactsFromRequirementPack({
     sc += 1;
   }
 
+  const { frParentId } = require('../utils/aiAnalysis/fieldMapCanon');
   const frs = Array.isArray(pack.functionalRequirements) ? pack.functionalRequirements : [];
   for (const fr of frs) {
     const externalKey = String(fr.externalId || fr.externalKey || '').trim();
     if (!externalKey) continue;
+    const parentKey = frParentId(fr);
     await upsert({
       kind: 'FR',
       externalKey,
@@ -1198,7 +1200,7 @@ async function seedArtifactsFromRequirementPack({
       summary: String(fr.description || '').slice(0, 2000),
       structured: {
         level: fr.level || 'Requirement',
-        parentExternalKey: fr.parentExternalId || '',
+        parentExternalKey: parentKey == null ? '' : String(parentKey),
         description: fr.description || '',
         priority: fr.priority || 'Medium',
         acceptanceCriteria: fr.acceptanceCriteria || '',
@@ -1422,6 +1424,26 @@ async function seedArtifactsFromRequirementPack({
         customerRequirementIds: Array.isArray(row.customerRequirementIds)
           ? row.customerRequirementIds
           : [],
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+      },
+    });
+  }
+
+  const actorRows = Array.isArray(pack.actors) ? pack.actors : [];
+  for (const row of actorRows) {
+    const externalKey = String(row.externalId || row.externalKey || '').trim();
+    if (!externalKey) continue;
+    const name = String(row.name || row.title || externalKey).trim();
+    await upsert({
+      kind: 'ACTOR',
+      externalKey,
+      title: name.slice(0, 240),
+      summary: String(row.description || row.role || '').slice(0, 2000),
+      structured: {
+        name,
+        role: String(row.role || '').slice(0, 120),
+        description: String(row.description || ''),
         status: String(row.status || '').slice(0, 64),
         baNote: String(row.baNote || '').slice(0, 2000),
       },
@@ -2375,6 +2397,29 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
   };
 }
 
+/**
+ * Attach pack-scoped customer docs to project after Gate2 promote (idempotent).
+ * @returns {{ modified: number }}
+ */
+async function linkPackDocumentsToProject({ organizationId, packId, projectId } = {}) {
+  const orgId = String(organizationId || '').trim();
+  const pack = String(packId || '').trim();
+  const proj = String(projectId || '').trim();
+  if (!orgId || !pack || !proj) {
+    return { modified: 0 };
+  }
+  const res = await CustomerDocument.updateMany(
+    {
+      organizationId: orgId,
+      packId: pack,
+      isActive: true,
+      $or: [{ projectId: null }, { projectId: { $exists: false } }],
+    },
+    { $set: { projectId: proj } }
+  );
+  return { modified: Number(res.modifiedCount || 0) };
+}
+
 module.exports = {
   listCustomerDocuments,
   downloadCustomerDocument,
@@ -2391,6 +2436,7 @@ module.exports = {
   cutSrsBaseline,
   listSrsBaselines,
   seedArtifactsFromRequirementPack,
+  linkPackDocumentsToProject,
   advanceToPhase2,
   getSrsDraft,
   exportSrsWorkbook,

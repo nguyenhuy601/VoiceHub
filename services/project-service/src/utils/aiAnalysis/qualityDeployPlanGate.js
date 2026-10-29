@@ -16,10 +16,15 @@ function hasRequiredQualityLevels(levels) {
 
 function isQualityPlanStructurallyOk(qualityPlan) {
   if (!qualityPlan || typeof qualityPlan !== 'object') return false;
-  if (!hasRequiredQualityLevels(qualityPlan.levels)) return false;
+  const levels = qualityPlan.levels || qualityPlan.testStrategy?.levels;
+  const catalog = asArray(qualityPlan.catalogPlan);
+  if (!hasRequiredQualityLevels(levels) && !catalog.length) return false;
+  const meta = qualityPlan.meta && typeof qualityPlan.meta === 'object' ? qualityPlan.meta : {};
+  if (meta.coverageComplete === true) return true;
+  if (meta.coverageComplete === false) return false;
+  // Unstamped legacy: soft content check (era soft-skip still applies upstream)
   const ac = asArray(qualityPlan.acCoverage).length;
-  const catalog = asArray(qualityPlan.catalogPlan).length;
-  return ac > 0 || catalog > 0;
+  return ac > 0 || catalog.length > 0;
 }
 
 function isDeployPlanStructurallyOk(deployPlan) {
@@ -82,7 +87,7 @@ function hasQualityDeployEraEvidence(container = {}, feasibility = null) {
 }
 
 /**
- * Enforce structural quality+deploy only when era evidence exists (plans / tools / G13 codes).
+ * Enforce structural quality+deploy only when era evidence exists (plans / tools / feasibility codes).
  * Legacy HOW ready without those signals → soft skip (hole #1).
  */
 function evaluateQualityDeployGate(packOrContainer, opts = {}) {
@@ -103,10 +108,21 @@ function evaluateQualityDeployGate(packOrContainer, opts = {}) {
 
   const failures = [];
   if (enforce && !qualityPlanOk) {
+    const reasonCodes = asArray(qp?.meta?.reasonCodes);
+    const code = reasonCodes.includes('TEST_DETAILS_INCOMPLETE')
+      ? 'TEST_DETAILS_INCOMPLETE'
+      : reasonCodes.includes('AC_COVERAGE_GAP')
+        ? 'AC_COVERAGE_GAP'
+        : 'FEAS_QUALITY_PLAN';
     failures.push({
-      code: 'FEAS_QUALITY_PLAN',
+      code,
       message:
-        'Quality/testing plan incomplete (need levels + AC/catalog coverage) — Quality Gate ≠ Testing Plan artifact',
+        'Quality/testing plan incomplete — coverageComplete required (ac||catalog alone is not enough)',
+      detail: {
+        uncoveredCriteria: asArray(qp?.meta?.uncoveredCriteria).slice(0, 40),
+        reasonCodes,
+        coverageComplete: qp?.meta?.coverageComplete === true,
+      },
     });
   }
 
@@ -127,7 +143,7 @@ function evaluateQualityDeployGate(packOrContainer, opts = {}) {
 }
 
 /**
- * Merge quality/deploy failures into a G13-shaped feasibility object.
+ * Merge quality/deploy failures into a feasibility-shaped feasibility object.
  */
 function mergeQualityDeployIntoFeasibility(feasibility, packOrContainer) {
   const gate = evaluateQualityDeployGate(packOrContainer, { feasibility });

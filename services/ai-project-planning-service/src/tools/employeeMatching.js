@@ -9,7 +9,7 @@ const {
   scopeContainerTasksByContext,
 } = require('../semanticLayer/howToolContext');
 
-/** G9 Employee Matching — Fit → Feasible → featureOwner. */
+/** employeeMatching Employee Matching — Fit → Feasible → featureOwner. */
 async function employeeMatching(input = {}, context = {}) {
   const snapshotId = input.snapshotId || input.id || null;
   const pack = context.pack || input.pack || {};

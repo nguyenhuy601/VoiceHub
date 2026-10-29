@@ -1,5 +1,5 @@
 /**
- * JSON artifact on redis-lg. Key is jobType + input hash. No SRS, no Gate, no G15.
+ * JSON artifact on redis-lg. Key is jobType + input hash. No SRS, no Gate, no agentCheckpoint.
  */
 
 const { HOW_ARTIFACT_SCHEMA_VERSION } = require('./artifactHash');

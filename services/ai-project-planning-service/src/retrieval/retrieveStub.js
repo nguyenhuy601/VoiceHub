@@ -1,5 +1,5 @@
 /**
- * G7 retrieve step — stub / off substring match (Step 3).
+ * RAG retrieve step — stub / off substring match (Step 3).
  * keyword|hybrid → retrieveKeyword / retrieveHybrid (Step 4).
  * qdrant → still uses this path with fallbackStub until Step 5.
  */

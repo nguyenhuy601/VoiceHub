@@ -19,8 +19,8 @@ const {
 } = require('../contracts/frFromCrContract');
 const {
   reconcileEpicsAcrossChunks,
-  deriveBacklogFromFrEpics,
-} = require('./deriveBacklogFromFrEpics');
+} = require('./frEpicCatalog');
+const { buildBacklogStructureFromFr } = require('./backlogStructure/buildBacklogStructureFromFr');
 
 const NAME_MAX = 240;
 const DESC_MAX = 800;
@@ -132,8 +132,8 @@ function listCustomerRawIntake(pack = {}, snapshot = null, env = process.env) {
 
   if (!out.length && (snapshot?.canonicalRaw || pack?.aiAnalysis?.canonicalRaw)) {
     try {
-      const { resolveFrListForG4 } = require('../semantic/sectionInputContract');
-      const rows = resolveFrListForG4(snapshot || {}, pack);
+      const { resolveFrListForUnderstanding } = require('../semantic/sectionInputContract');
+      const rows = resolveFrListForUnderstanding(snapshot || {}, pack);
       for (let i = 0; i < rows.length && out.length < max; i += 1) {
         pushCr(out, seen, rows[i], i);
       }
@@ -154,17 +154,20 @@ function buildFrFromCrPrompt({ crRows = [], localeInstruction = '' } = {}) {
     actor: r.actor,
     priority: r.priority,
   }));
+  const { HIERARCHY_PROMPT_RULES } = require('../semantic/hierarchyPromptRules');
   return [
     localeInstruction || 'Respond in the same language as CR titles.',
     'Propose FR+Epic JSON only. No prose. No CR ids as FR id.',
-    'Shape:{"epics":[{"id","name"}],"nodes":[{"id","name","description?","ac","priority","sourceCrIds","parentEpicId"}]}',
+    'Shape:{"epics":[{"id","name"}],"features":[{"id","name","parentEpicId"}]?,"nodes":[{"id","name","description?","ac","priority","sourceCrIds","parentEpicId","parentFeatureId?"}]}',
     'RULE-E6 (dual-duty): (1) Prioritize correct CR→FR split + AC; keep FR name/description faithful to CR behavior.',
-    '(2) Epic is ONLY a grouping label for shared outcome — do NOT rewrite FR name/AC to fit an epic; do NOT drop an FR because grouping is hard.',
+    '(2) Epic groups different capabilities under one business goal — do NOT rewrite FR name/AC to fit an epic; do NOT drop an FR because grouping is hard.',
+    HIERARCHY_PROMPT_RULES,
     'Rules: id = FR-n unique within this chunk; sourceCrIds exact CR ids from CR_INTAKE and non-empty;',
     'split independent behaviors (do NOT copy 1 CR = 1 FR when one CR states several behaviors); never copy CR id as FR id; no NFR-only items;',
-    'name = short title; description = fuller behavior (do not set description identical to name).',
+    'name = short title; description = fuller behavior (do not set description identical to name); each node must be Story-granular (verifiable AC).',
     'Epic: use stable epicId when possible (e.g. EPIC-IOT), not only EPIC-1 sequential; parentEpicId must reference epics[].id or null for intentional root Story.',
-    'Every epic must cover ≥1 FR via parentEpicId. Do not invent Story text — Story will be derived from FR.',
+    'Optional features[] when several Story-FRs share one capability; parentFeatureId references features[].id.',
+    'Every epic must cover ≥1 FR via parentEpicId. Do not invent Story text — Story title/AC are copied from accepted FR (RULE-E1).',
     `CR_INTAKE=${JSON.stringify(payload)}`,
   ].join('\n');
 }
@@ -318,7 +321,7 @@ function renumberProposedFr(items = []) {
 }
 
 /**
- * Proposed FR-* is the Gate1 list. G4 may still emit CR ids when it resumes
+ * Proposed FR-* is the Gate1 list. FR may still emit CR ids when it resumes
  * a prefix built before the overlay; those rows must not replace the proposal.
  * @param {object[]} proposedItems
  * @param {object[]} g4Requirements
@@ -513,12 +516,19 @@ async function proposeFrFromCrWithLlm(opts = {}) {
     storyIds: (epic.storyIds || []).map((id) => oldToNew.get(id) || id).filter(Boolean),
   }));
 
-  const derived = deriveBacklogFromFrEpics(items, epics, {
-    backlogSource: 'derived_from_fr_epic',
+  const built = await buildBacklogStructureFromFr({
+    frItems: items,
+    epicsCatalog: epics,
+    packId: opts.packId || 'pack',
+    sourceSnapshotVersion: opts.sourceSnapshotVersion,
+    generateJsonFn: opts.generateJsonFn,
+    env: opts.env || process.env,
   });
-  if (!derived.ok) {
-    return failMeta((derived.errors || ['derive_fail']).join(','), {
-      reasonCodes: [...(derived.errors || ['derive_fail'])],
+  if (!built.ok) {
+    return failMeta(built.code || 'backlog_structure_failed', {
+      reasonCodes: [built.code || 'backlog_structure_failed'],
+      identityReview: built.identityReview || [],
+      needsReview: Boolean(built.needsReview),
       llmCalls,
       llmMs: Date.now() - t0,
       epicReconcileMerged: reconciled.epicReconcileMerged,
@@ -532,11 +542,11 @@ async function proposeFrFromCrWithLlm(opts = {}) {
     ok: true,
     items,
     epics,
-    backlogStructure: derived.backlogStructure,
+    backlogStructure: built.backlogStructure,
     meta: {
       source: 'llm_fr_from_cr',
       shapeVersion: FR_FROM_CR_SHAPE_VERSION,
-      backlogSource: 'derived_from_fr_epic',
+      backlogSource: 'backlog_structure',
       crIn: crRows.length,
       frOut: items.length,
       epicCount: epics.length,
@@ -544,6 +554,7 @@ async function proposeFrFromCrWithLlm(opts = {}) {
       llmMs: Date.now() - t0,
       chunks: chunks.length,
       epicReconcileMerged: reconciled.epicReconcileMerged,
+      draftRevisionId: built.draftRevisionId,
     },
   };
 }
@@ -560,7 +571,7 @@ function stripCanonicalRaw(host) {
   return next;
 }
 
-/** Snapshot/pack overlay so G4 reads FR-* instead of canonical CR. */
+/** Snapshot/pack overlay so FR reads FR-* instead of canonical CR. */
 function overlayAnalyzedFr(snapshot, pack, items = []) {
   const frs = items.map((row) => ({
     id: row.id,

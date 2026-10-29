@@ -5,6 +5,7 @@ import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
+import ConfirmDialog from '../../../components/Shared/ConfirmDialog';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -31,6 +32,7 @@ export default function AiPlanningRunPanel({
   const [phaseStatus, setPhaseStatus] = useState('');
   const [planStatus, setPlanStatus] = useState('');
   const [packStatus, setPackStatus] = useState('');
+  const [promotePhase2Open, setPromotePhase2Open] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!organizationId || !packId) return null;
@@ -97,24 +99,51 @@ export default function AiPlanningRunPanel({
     }
   };
 
-  /** RULE-03: one CTA — confirm Gate 2 then promote (idempotent; retry-safe). */
-  const confirmAndPromote = async () => {
+  /** Approve HOW only — then open «Chuyển sang phase 2» confirm. */
+  const confirmGate2Only = async () => {
+    if (!canPromote || busy || !organizationId || !packId) return;
+    if (planStatus === 'confirmed') {
+      setPromotePhase2Open(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      await requirementAPI.confirmPhaseGate2(organizationId, packId, {
+        action: 'po_approve',
+      });
+      setPlanStatus('confirmed');
+      onPlanStatusChange?.('confirmed');
+      toast.success(t('requirements.gate2PoApproveSuccess') || 'Đã duyệt Gate 2.');
+      await refresh().catch(() => {});
+      setPromotePhase2Open(true);
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, {
+          t,
+          fallback:
+            t('requirements.gate2PoApproveFail') ||
+            t('requirements.gate2ConfirmAndPromoteFail'),
+        })
+      );
+      await refresh().catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const promoteToPhase2 = async () => {
     if (!canPromote || busy || !organizationId || !packId) return;
     setBusy(true);
     try {
-      if (planStatus !== 'confirmed') {
-        await requirementAPI.confirmPhaseGate2(organizationId, packId);
-        setPlanStatus('confirmed');
-        onPlanStatusChange?.('confirmed');
-      }
       const res = await requirementAPI.createProjectFromPack(organizationId, packId, {
         importWorkItems: true,
         applyAssignees: true,
+        idempotencyKey: `gate2-phase2:${String(packId)}`,
       });
       const data = unwrap(res);
       setPackStatus('project_linked');
       toast.success(
-        t('requirements.gate2ConfirmAndPromoteSuccess') ||
+        t('requirements.gate2PromotePhase2Success') ||
           t('requirements.promoteProjectSuccess')
       );
       onPromoted?.(data);
@@ -123,7 +152,7 @@ export default function AiPlanningRunPanel({
         resolveApiErrorMessage(error, {
           t,
           fallback:
-            t('requirements.gate2ConfirmAndPromoteFail') ||
+            t('requirements.gate2PromotePhase2Fail') ||
             t('requirements.createProjectFromPackFail'),
         })
       );
@@ -175,17 +204,31 @@ export default function AiPlanningRunPanel({
           <button
             type="button"
             disabled={busy}
-            onClick={confirmAndPromote}
+            onClick={confirmGate2Only}
             className="inline-flex items-center gap-1.5 rounded-md border border-emerald-600/40 px-3 py-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300 disabled:opacity-40"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {planStatus === 'confirmed'
-              ? t('requirements.promoteProjectRetry') ||
-                t('requirements.gate2ConfirmAndPromote')
-              : t('requirements.gate2ConfirmAndPromote')}
+              ? t('requirements.gate2PromotePhase2') || 'Chuyển sang phase 2'
+              : t('requirements.gate2PoApprove') || 'Duyệt Gate 2'}
           </button>
         ) : null}
       </div>
+      <ConfirmDialog
+        isOpen={promotePhase2Open}
+        onClose={() => setPromotePhase2Open(false)}
+        onConfirm={() => {
+          setPromotePhase2Open(false);
+          return promoteToPhase2();
+        }}
+        title={t('requirements.gate2PromotePhase2Title') || 'Chuyển sang phase 2'}
+        message={
+          t('requirements.gate2PromotePhase2Desc') ||
+          'Import board từ kế hoạch HOW và chuyển dự án sang giai đoạn Phát triển.'
+        }
+        confirmText={t('requirements.gate2PromotePhase2Confirm') || 'Chuyển sang phase 2'}
+        cancelText={t('common.cancel') || 'Hủy'}
+      />
     </section>
   );
 }

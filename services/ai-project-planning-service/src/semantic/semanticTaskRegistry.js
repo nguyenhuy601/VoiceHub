@@ -219,10 +219,11 @@ const SEMANTIC_TASKS = Object.freeze([
       ],
     },
     evidenceRequirements: 'evidence spans preferred',
-    promptPolicy: 'G4 semantic pipeline reference',
-    validationRules: ['g4_pipeline'],
+    promptPolicy:
+      'WhatFr semantic section (src/semantic frSectionHooks). CR→FR + epic map; Story←FR derive; H1–H6 hierarchy. No FR graph.',
+    validationRules: ['fr_section_semantic'],
     confidencePolicy: 'partial_ok',
-    outputContract: 'FR semantic enrich — not SRS draft',
+    outputContract: 'FR proposal items + backlogStructure — not SRS draft',
   },
   {
     id: 'uc',

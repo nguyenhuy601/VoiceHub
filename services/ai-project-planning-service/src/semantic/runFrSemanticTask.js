@@ -1,10 +1,9 @@
 /**
- * FR SemanticTask — CR propose + finalize around FR understanding graph.
- * Production SoT for the pipeline is whatPhaseGraph `frUnderstanding` (Pattern B).
- * Standalone graph.invoke only when opts.allowStandaloneFrGraph === true (tests).
+ * FR SemanticTask — CR propose + finalize via semantic FR section (frSectionHooks).
+ * Production SoT: whatPhaseGraph WhatFrTool → buildWhatSectionToolSubgraph('fr').
+ * FR / runFrUnderstanding removed.
  */
 
-const { runSemanticTask } = require('./runSemanticTask');
 const { TASK_POLICIES } = require('./semanticTaskRegistry');
 
 /**
@@ -149,68 +148,70 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
 }
 
 /**
- * Attach backlogStructure via derive (Story=FR). RULE-E0: never call frDecomposeLlm.
- * R2: non-CR missing parentEpicId → assignFrEpicsLlm then derive.
+ * Attach backlogStructure via propose+pipeline (Story id ≠ FR id).
+ * RULE-E0: never call frDecomposeLlm.
+ * R2: non-CR missing parentEpicId → assignFrEpicsLlm then build backlog structure.
  */
 async function attachDerivedBacklogStructure(proposalFragment, opts = {}, ctx = {}) {
-  const {
-    deriveBacklogFromFrEpics,
-    frItemsHaveEpicMap,
-  } = require('../engines/deriveBacklogFromFrEpics');
+  const { frItemsHaveEpicMap } = require('../engines/frEpicCatalog');
+  const { buildBacklogStructureFromFr } = require('../engines/backlogStructure/buildBacklogStructureFromFr');
 
   let items = Array.isArray(proposalFragment?.items) ? proposalFragment.items : [];
   let epics = Array.isArray(ctx.frFromCrEpics) ? ctx.frFromCrEpics : [];
   let backlogMeta = null;
   let assignCalls = 0;
+  const env = opts.env || process.env;
 
-  // Prefer backlog already derived on CR path.
-  if (ctx.frFromCrBacklogStructure && typeof ctx.frFromCrBacklogStructure === 'object') {
-    proposalFragment.backlogStructure = ctx.frFromCrBacklogStructure;
-    // Keep parentEpicId on FR items when CR path already stamped them.
-    if (epics.length && items.length) {
-      const byId = new Map(
-        (ctx.frFromCrBacklogStructure.stories || []).map((s) => [String(s.id), s])
-      );
-      proposalFragment.items = items.map((row) => {
-        const id = String(row?.id || row?.logicalId || '');
-        const story = byId.get(id);
-        if (!story) return row;
-        return {
-          ...row,
-          parentEpicId:
-            row.parentEpicId !== undefined
-              ? row.parentEpicId
-              : story.parentEpicId ?? null,
-        };
-      });
-    }
+  // Prefer publishable backlog already built on CR/assign path (not Story=FR).
+  const existing = ctx.frFromCrBacklogStructure || proposalFragment.backlogStructure;
+  if (
+    existing &&
+    typeof existing === 'object' &&
+    existing.meta?.shapeVersion === 'backlog-structure' &&
+    Array.isArray(existing.stories) &&
+    existing.stories.length
+  ) {
+    proposalFragment.backlogStructure = existing;
     backlogMeta = {
-      backlogSource: ctx.frFromCrMeta?.backlogSource || 'derived_from_fr_epic',
+      backlogSource: existing.meta?.backlogSource || 'backlog_structure',
       llmCalls: 0,
-      fromFrFromCr: true,
+      shapeVersion: existing.meta.shapeVersion,
+      fromFrFromCr: Boolean(ctx.frFromCrBacklogStructure),
     };
     return { backlogMeta, assignCalls };
   }
 
-  if (frItemsHaveEpicMap(items) && epics.length) {
-    const derived = deriveBacklogFromFrEpics(items, epics, {
-      backlogSource: 'derived_from_fr_epic',
+  if (!frItemsHaveEpicMap(items)) {
+    const { assignFrEpicsWithLlm } = require('../engines/assignFrEpicsLlm');
+    const assigned = await assignFrEpicsWithLlm({
+      proposalItems: items,
+      env,
+      generateJsonFn: opts.generateJsonFn,
+      packId: opts.packId || ctx.pack?.id || 'pack',
+      sourceSnapshotVersion: opts.sourceSnapshotVersion,
     });
-    if (derived.ok) {
-      proposalFragment.backlogStructure = derived.backlogStructure;
-      backlogMeta = { backlogSource: 'derived_from_fr_epic', llmCalls: 0 };
+    assignCalls = Number(assigned.meta?.llmCalls) || 0;
+    if (!assigned.ok) {
+      proposalFragment.meta = {
+        ...(proposalFragment.meta || {}),
+        frEpicAssignFailed: true,
+        frEpicAssignReason: assigned.meta?.fallbackReason || 'assign_fr_epics_failed',
+      };
+      return { backlogMeta: assigned.meta || { ok: false }, assignCalls };
+    }
+    proposalFragment.items = assigned.items;
+    items = assigned.items;
+    epics = assigned.epics || epics;
+    if (assigned.backlogStructure) {
+      proposalFragment.backlogStructure = assigned.backlogStructure;
+      backlogMeta = {
+        ...(assigned.meta || {}),
+        backlogSource: assigned.backlogStructure.meta?.backlogSource || 'backlog_structure',
+        shapeVersion: assigned.backlogStructure.meta?.shapeVersion,
+      };
       return { backlogMeta, assignCalls };
     }
-    proposalFragment.meta = {
-      ...(proposalFragment.meta || {}),
-      frEpicDeriveFailed: true,
-      frEpicDeriveReason: (derived.errors || []).join(','),
-    };
-    return { backlogMeta: { ok: false, errors: derived.errors }, assignCalls };
-  }
-
-  // Items already have parentEpicId but epics catalog missing — rebuild catalog from ids.
-  if (frItemsHaveEpicMap(items) && !epics.length) {
+  } else if (!epics.length) {
     const catalog = [];
     const seen = new Set();
     for (const row of items) {
@@ -222,39 +223,44 @@ async function attachDerivedBacklogStructure(proposalFragment, opts = {}, ctx = 
       seen.add(pid);
       catalog.push({ id: pid, name: pid });
     }
-    if (catalog.length || items.every((r) => r.parentEpicId == null)) {
-      const derived = deriveBacklogFromFrEpics(items, catalog, {
-        backlogSource: 'derived_from_fr_epic',
-      });
-      if (derived.ok) {
-        proposalFragment.backlogStructure = derived.backlogStructure;
-        backlogMeta = { backlogSource: 'derived_from_fr_epic', llmCalls: 0 };
-        return { backlogMeta, assignCalls };
-      }
-    }
+    epics = catalog;
   }
 
-  // R2: non-CR / legacy FR missing epic map → assignFrEpicsLlm (structure-only).
-  const { assignFrEpicsWithLlm } = require('../engines/assignFrEpicsLlm');
-  const assigned = await assignFrEpicsWithLlm({
-    proposalItems: items,
-    env: opts.env || process.env,
+  const built = await buildBacklogStructureFromFr({
+    frItems: items,
+    epicsCatalog: epics,
+    packId: opts.packId || ctx.pack?.id || 'pack',
+    sourceSnapshotVersion: opts.sourceSnapshotVersion,
     generateJsonFn: opts.generateJsonFn,
+    env,
+    approvedBaseline: opts.approvedBaseline,
+    currentDraft: opts.currentDraft,
+    expectedDraftRevisionId: opts.expectedDraftRevisionId,
+    currentDraftRevisionId: opts.currentDraftRevisionId,
+    identityResolutions: opts.identityResolutions,
   });
-  assignCalls = Number(assigned.meta?.llmCalls) || 0;
-  backlogMeta = assigned.meta || null;
-  if (assigned.ok && assigned.backlogStructure) {
-    proposalFragment.items = assigned.items;
-    proposalFragment.backlogStructure = assigned.backlogStructure;
+  if (built.ok && built.backlogStructure) {
+    proposalFragment.backlogStructure = built.backlogStructure;
+    backlogMeta = {
+      backlogSource: 'backlog_structure',
+      llmCalls: assignCalls,
+      shapeVersion: built.backlogStructure.meta?.shapeVersion,
+      draftRevisionId: built.draftRevisionId,
+    };
     return { backlogMeta, assignCalls };
   }
 
   proposalFragment.meta = {
     ...(proposalFragment.meta || {}),
-    frEpicAssignFailed: true,
-    frEpicAssignReason: assigned.meta?.fallbackReason || 'assign_fr_epics_failed',
+    backlogStructureFailed: true,
+    backlogStructureCode: built.code || 'backlog_structure_failed',
+    backlogStructureNeedsReview: Boolean(built.needsReview),
+    identityReview: built.identityReview || [],
   };
-  return { backlogMeta, assignCalls };
+  return {
+    backlogMeta: { ok: false, code: built.code, needsReview: built.needsReview },
+    assignCalls,
+  };
 }
 
 /**
@@ -362,77 +368,12 @@ async function finalizeFrSemanticFromPipeline(g4Out, opts = {}, ctx = {}) {
   };
 }
 
-async function runFrGraphViaAllowedPath(opts = {}) {
+async function runFrSemanticTask(opts = {}) {
   if (typeof opts.frPipelineFn === 'function') {
     return opts.frPipelineFn(opts);
   }
-  if (opts.allowStandaloneFrGraph === true) {
-    const { invokeFrUnderstandingStandalone } = require('../engines/frUnderstanding');
-    return invokeFrUnderstandingStandalone({
-      ...opts,
-      allowStandaloneFrGraph: true,
-    });
-  }
-  const err = new Error(
-    'FR understanding runs only as runFrUnderstanding node on whatPhaseGraph (Pattern B). Not via runFrSemanticTask/invokeTool.'
-  );
-  err.code = 'PHASE_GRAPH_ONLY';
-  throw err;
-}
-
-async function runFrSemanticTask(opts = {}) {
-  const env = opts.env || process.env;
-  const prepared = await prepareFrSnapshotForPipeline(opts);
-  if (prepared.failClosed) return prepared.failClosed;
-
-  const {
-    snapshot,
-    pack,
-    proposedById,
-    frFromCrMeta,
-    frFromCrEpics,
-    frFromCrBacklogStructure,
-    frOpts,
-  } = prepared;
-
-  return runSemanticTask({
-    taskId: 'fr',
-    rows: [{ id: 'fr-runtime-sentinel' }],
-    pack,
-    env,
-    frRuntimeFn: async () => {
-      const g4Out = await runFrGraphViaAllowedPath({
-        snapshot,
-        pack,
-        ...frOpts,
-        onProgress: opts.onProgress,
-        generateJsonFn: opts.generateJsonFn,
-        env,
-        allowStandaloneFrGraph: opts.allowStandaloneFrGraph,
-        frPipelineFn: opts.frPipelineFn,
-      });
-      return finalizeFrSemanticFromPipeline(g4Out, { ...opts, pack, env }, {
-        proposedById,
-        frFromCrMeta,
-        frFromCrEpics,
-        frFromCrBacklogStructure,
-      });
-    },
-  }).then((sem) => {
-    const g4Meta = sem.meta || {};
-    return {
-      ...sem,
-      status: sem.status || TASK_POLICIES.RUN,
-      paused: Boolean(g4Meta.g4Out?.paused || sem.meta?.paused),
-      blocked: Boolean(g4Meta.g4Out?.blocked || sem.meta?.blocked),
-      frUnderstanding: g4Meta.frUnderstanding || sem.semanticOutput,
-      conflictAmbiguityGate: g4Meta.conflictAmbiguityGate,
-      requirementIntegrityGate:
-        g4Meta.requirementIntegrityGate || g4Meta.conflictAmbiguityGate,
-      proposalFragment: sem.proposalFragment || g4Meta.proposalFragment || null,
-      g4Out: g4Meta.g4Out,
-    };
-  });
+  const { runFrSectionDerive } = require('./frSectionHooks');
+  return runFrSectionDerive(opts);
 }
 
 module.exports = {

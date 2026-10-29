@@ -101,6 +101,26 @@ const REASON_I18N = {
     'requirements.gate2ScheduleReasonEmpty',
     'ScheduleTool chưa sinh dòng lịch — chạy lại HOW (Schedule) trên Monitor',
   ],
+  MISSING_ACCEPTANCE_CRITERIA: [
+    'requirements.gate2ReasonMissingAcceptanceCriteria',
+    'Story thiếu AC / acRefs truy vết được — bổ sung ở WHAT rồi chạy lại HOW (WBS)',
+  ],
+  INVALID_SOURCE_REF: [
+    'requirements.gate2ReasonInvalidSourceRef',
+    'Tham chiếu nguồn ngoài allowlist — sửa ref FR/UC/NFR/AC hợp lệ',
+  ],
+  MISSING_REQUIRED_UC_REF: [
+    'requirements.gate2ReasonMissingRequiredUcRef',
+    'Test Case gắn UC nhưng thiếu/invalid UC ref — sửa sourceUcKey hoặc bỏ intent UC',
+  ],
+  AC_COVERAGE_GAP: [
+    'requirements.gate2ReasonAcCoverageGap',
+    'Còn AC/tiêu chí bắt buộc chưa được Task hoặc TC bao phủ — không duyệt phạm vi này cho đến khi đủ',
+  ],
+  TEST_DETAILS_INCOMPLETE: [
+    'requirements.gate2ReasonTestDetailsIncomplete',
+    'TC thiếu steps / expected / test data — chưa đủ điều kiện chấp nhận là TC thực thi được',
+  ],
 };
 
 /**

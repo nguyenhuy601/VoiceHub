@@ -1,5 +1,5 @@
 /**
- * Planning skill package (G17).
+ * Planning skill package (LLM runtime).
  */
 const planningSkill = {
   skillId: 'planning',

@@ -49,7 +49,7 @@ function queuedRunCreateDoc(input, { packId, organizationId, snapshotId, job, id
 }
 
 /**
- * G19 Run store — lifecycle + snapshot binding (RULE-09: snapshotId immutable per run).
+ * run store Run store — lifecycle + snapshot binding (RULE-09: snapshotId immutable per run).
  */
 
 /**

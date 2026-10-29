@@ -19,7 +19,7 @@ function preparePhaseSnapshot({
 
   let boundSnapshot = bound.snapshot;
   try {
-    const { attachG1Catalogs } = require('../knowledge/attachG1Catalogs');
+    const { attachKnowledgeCatalogs } = require('../knowledge/attachKnowledgeCatalogs');
     const attachInput = {
       ...boundSnapshot,
       pack,
@@ -27,7 +27,7 @@ function preparePhaseSnapshot({
       requirementSkills:
         boundSnapshot.requirementSkills || pack?.requirementSkills,
     };
-    boundSnapshot = attachG1Catalogs(attachInput).snapshot;
+    boundSnapshot = attachKnowledgeCatalogs(attachInput).snapshot;
   } catch {
     /* keep boundary snapshot */
   }

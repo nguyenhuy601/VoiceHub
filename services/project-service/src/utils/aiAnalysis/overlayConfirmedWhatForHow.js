@@ -3,9 +3,11 @@
  * Chỉ ghi đè sheet khi section đã có item được giữ lại.
  */
 
-function textOf(value, max = 4000) {
-  return String(value || '').trim().slice(0, max);
-}
+const {
+  textOf,
+  frParentId,
+  applyFrParentDualWrite,
+} = require('./fieldMapCanon');
 
 function acceptedItems(generated, decisions, sectionKey) {
   const items = generated?.[sectionKey]?.items;
@@ -42,14 +44,8 @@ function mapFr(item, index) {
   const ac = Array.isArray(item.acceptanceCriteria)
     ? item.acceptanceCriteria.map((row) => textOf(row, 500)).filter(Boolean).join('\n')
     : textOf(item.acceptanceCriteria || item.ac, 2000);
-  const parentEpicId =
-    item.parentEpicId === undefined || item.parentEpicId === null || item.parentEpicId === ''
-      ? item.parentEpicId === null
-        ? null
-        : undefined
-      : textOf(item.parentEpicId, 64);
   // level phải đúng casing 'Requirement' — listRequirementRows / packContentHash lọc exact.
-  // R6: keep parentEpicId so HOW/BacklogMap / Wbs SoT stay aligned with Gate1 FR+epic.
+  // RULE-01: dual-write parentExternalId + parentEpicId for seed RA + HOW WBS.
   const out = {
     externalId: id,
     level: 'Requirement',
@@ -62,7 +58,8 @@ function mapFr(item, index) {
     status: 'Draft',
     baNote: 'confirmed:what_proposal',
   };
-  if (parentEpicId !== undefined) out.parentEpicId = parentEpicId;
+  const parentId = frParentId(item);
+  applyFrParentDualWrite(out, parentId);
   return out;
 }
 
@@ -139,6 +136,35 @@ function mapScope(item) {
   return { type, scopeType: type, description };
 }
 
+function mapEntity(item, index) {
+  const id = textOf(item.logicalId || item.id || `DATA-${index + 1}`, 64);
+  const entity = textOf(item.entity || item.name || item.title || id, 240);
+  return {
+    externalId: id,
+    externalKey: id,
+    entity: entity || id,
+    attributes: textOf(item.attributes || item.fields || '', 2000),
+    validationRules: textOf(item.validationRules || '', 2000),
+    description: textOf(item.description || item.summary || '', 4000),
+    status: 'Draft',
+    baNote: 'confirmed:what_proposal',
+  };
+}
+
+function mapActor(item, index) {
+  const id = textOf(item.logicalId || item.id || `ACTOR-${index + 1}`, 64);
+  const name = textOf(item.name || item.title || item.actor || id, 240);
+  return {
+    externalId: id,
+    externalKey: id,
+    name: name || id,
+    role: textOf(item.role || item.type || '', 120),
+    description: textOf(item.description || item.summary || item.goal || '', 4000),
+    status: 'Draft',
+    baNote: 'confirmed:what_proposal',
+  };
+}
+
 /**
  * @param {object} pack mongoose doc or plain
  * @returns {{ changed: boolean, counts: Record<string, number> }}
@@ -175,8 +201,15 @@ function overlayConfirmedWhatForHow(pack) {
     'scope',
     acceptedItems(generated, decisions, 'scope').map(mapScope).filter(Boolean)
   );
+  write('dataEntities', acceptedItems(generated, decisions, 'entities').map(mapEntity));
+  write('actors', acceptedItems(generated, decisions, 'actors').map(mapActor));
 
   return { changed: Object.keys(counts).length > 0, counts };
 }
 
-module.exports = { overlayConfirmedWhatForHow };
+module.exports = {
+  overlayConfirmedWhatForHow,
+  mapFr,
+  mapEntity,
+  mapActor,
+};

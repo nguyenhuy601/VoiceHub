@@ -325,30 +325,39 @@ function runQualityPlanEngine(container = {}, pack = {}) {
     },
   };
 
+  const { stampQualityCoverageMeta } = require('../validation/qualityCoverageGate');
+  const stamped = stampQualityCoverageMeta(qualityPlan);
+
   return {
     status: 'ready',
     model: null,
     generatedAt: new Date().toISOString(),
-    qualityPlan,
-    meta: qualityPlan.meta,
+    qualityPlan: stamped,
+    meta: stamped.meta,
   };
 }
 
 function applyQualityPlanToContainer(container, result) {
+  const { stampQualityCoverageMeta } = require('../validation/qualityCoverageGate');
+  const qp = result?.qualityPlan
+    ? stampQualityCoverageMeta(result.qualityPlan)
+    : null;
   const next = {
     ...container,
     planning: { ...(container?.planning || {}) },
   };
-  next.planning.qualityPlan = result?.qualityPlan || null;
+  next.planning.qualityPlan = qp;
   return next;
 }
 
 function isQualityPlanStructurallyOk(qualityPlan) {
   if (!qualityPlan || typeof qualityPlan !== 'object') return false;
-  if (!hasRequiredLevels(qualityPlan.levels)) return false;
-  const ac = asArray(qualityPlan.acCoverage).length;
-  const catalog = asArray(qualityPlan.catalogPlan).length;
-  return ac > 0 || catalog > 0;
+  const meta = qualityPlan.meta && typeof qualityPlan.meta === 'object' ? qualityPlan.meta : {};
+  if (meta.coverageComplete === true) return true;
+  if (meta.coverageComplete === false) return false;
+  // Unstamped: content alone is NOT enough — evaluateCoverage decides
+  const { evaluateQualityCoverage } = require('../validation/qualityCoverageGate');
+  return evaluateQualityCoverage(qualityPlan).coverageComplete === true;
 }
 
 module.exports = {

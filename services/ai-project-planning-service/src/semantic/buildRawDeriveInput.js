@@ -89,7 +89,7 @@ function scopeSlice(pack) {
   }));
 }
 
-function slimRequirementUnderstanding(g4) {
+function slimRequirementUnderstanding(understanding) {
   if (!g4 || typeof g4 !== 'object') return null;
   const requirements = asArray(g4.requirements)
     .slice(0, UNDERSTANDING_FR_CAP)
@@ -119,7 +119,7 @@ function slimRequirementUnderstanding(g4) {
     }))
     .filter((r) => r.frId);
 
-  const facts = g4.facts && typeof g4.facts === 'object' ? g4.facts : {};
+  const facts = understanding.facts && typeof understanding.facts === 'object' ? understanding.facts : {};
   return {
     requirementCount: requirements.length || asArray(g4.requirements).length,
     requirements: requirements.length ? requirements : undefined,
@@ -186,8 +186,8 @@ function buildRawDeriveInput(engineId, pack, opts = {}) {
 
   const overview = overviewSlice(pack);
   const scope = scopeSlice(pack);
-  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
-  const requirementUnderstanding = slimRequirementUnderstanding(g4);
+  const understanding = opts.frUnderstanding || opts.understanding || null;
+  const requirementUnderstanding = slimRequirementUnderstanding(understanding);
   const evidenceRefs = slimEvidenceRefs(opts.evidence || g4?.evidence || null);
 
   const base = {

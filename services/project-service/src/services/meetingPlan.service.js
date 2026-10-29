@@ -195,7 +195,7 @@ async function snapshotActivePlan(projectId) {
 }
 
 /**
- * G2 — adjust future plan lines when project end date changes (preview only returns; apply writes).
+ * sourceManifest — adjust future plan lines when project end date changes (preview only returns; apply writes).
  */
 function previewEndDatePlanAdjust({ lines = [], newEndDate, tzOffsetHours = 7 }) {
   const endKey = weekKeyFromDate(newEndDate, { tzOffsetHours });

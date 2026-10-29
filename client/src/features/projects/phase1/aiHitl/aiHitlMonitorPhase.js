@@ -15,7 +15,7 @@ import {
 
 export { WHAT_MACRO_STEPS, HOW_MACRO_STEPS, HOW_MONITOR_STEPS };
 
-/** Flat G4 WHAT substeps (mirror APS pipelineProgress.js) — not primary Monitor UI */
+/** Flat FR WHAT substeps (mirror APS pipelineProgress.js) — not primary Monitor UI */
 export const WHAT_MONITOR_STEPS = Object.freeze(
   WHAT_MACRO_STEPS.flatMap((m) =>
     m.substeps.map((id) => ({

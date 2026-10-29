@@ -1,5 +1,5 @@
 /**
- * G20 Project Initialization — materialize approved AI plan into project DB.
+ * plan materialize Project Initialization — materialize approved AI plan into project DB.
  * Deterministic application service (NOT an Agent). Lives on project-service (RULE-11).
  *
  * Idempotency: callers MUST pass idempotencyKey; duplicate key returns prior result.

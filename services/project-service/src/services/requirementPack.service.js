@@ -486,11 +486,79 @@ async function approveRequirementPack({
     overrideReason,
   });
 
+  // Backlog Story SoT hard-gate BEFORE status=approved (avoid HOW/Gate2 empty).
+  let pendingApprovedBacklogStructure = null;
+  let missingApprovedBacklogOverride = false;
+  {
+    const {
+      hasReadySrsProposal,
+    } = require('../utils/aiAnalysis/whatRequirementPolicy');
+    if (hasReadySrsProposal(pack)) {
+      const proposal = pack.aiAnalysis?.analyses?.srsProposal || null;
+      if (proposal) {
+        const {
+          materializeApprovedBacklogStructure,
+          countAcceptedFrItems,
+          collectAcceptedFrAndEpics,
+        } = require('../utils/srsProposal/materializeApprovedBacklogStructure');
+        const { filterStoriesByAcContract } = require('../utils/srsProposal/storyAcContract');
+        const acceptedCount = countAcceptedFrItems(proposal);
+        if (acceptedCount > 0) {
+          const structure = materializeApprovedBacklogStructure(proposal);
+          const stories = Array.isArray(structure?.stories) ? structure.stories : [];
+          if (!structure || !stories.length) {
+            const forced =
+              forceApprove === true || forceApprove === 'true' || forceApprove === 1;
+            const reason = String(overrideReason || '').trim().slice(0, 2000);
+            if (!forced || !reason) {
+              const draftStories = Array.isArray(
+                proposal?.generated?.backlogStructure?.stories
+              )
+                ? proposal.generated.backlogStructure.stories
+                : [];
+              const { accepted: frForAc } = collectAcceptedFrAndEpics(proposal);
+              const acFilter = filterStoriesByAcContract(draftStories, frForAc);
+              const missingAc =
+                draftStories.length > 0 &&
+                acFilter.stories.length === 0 &&
+                acFilter.reasonCodes.length > 0;
+              const err = new Error(
+                missingAc
+                  ? 'Story SoT thiếu AC hợp lệ / acRefs truy vết được — bổ sung AC ở WHAT (MISSING_ACCEPTANCE_CRITERIA) hoặc forceApprove kèm lý do.'
+                  : 'Chưa có Story SoT từ backlog structure đã duyệt — sửa Epic/parentEpicId ở WHAT hoặc forceApprove kèm lý do.'
+              );
+              err.statusCode = 409;
+              err.errorCode = missingAc
+                ? 'MISSING_ACCEPTANCE_CRITERIA'
+                : 'GATE1_APPROVED_BACKLOG_MISSING';
+              err.details = {
+                acceptedFrCount: acceptedCount,
+                storyCount: 0,
+                draftStoryCount: draftStories.length,
+                reasonCodes: missingAc ? acFilter.reasonCodes : undefined,
+                rejectedStories: missingAc ? acFilter.rejected.slice(0, 20) : undefined,
+              };
+              logger.warn('[requirement] Gate1 backlog missing', {
+                packId: String(packId),
+                acceptedFrCount: acceptedCount,
+                errorCode: err.errorCode,
+              });
+              throw err;
+            }
+            missingApprovedBacklogOverride = true;
+          } else {
+            pendingApprovedBacklogStructure = structure;
+          }
+        }
+      }
+    }
+  }
+
   pack.status = 'approved';
   pack.approvedBy = userId;
   pack.approvedAt = new Date();
 
-  // G6: freeze SRS version on pack.aiAnalysis (Mixed) after Gate1
+  // canonicalSrs: freeze SRS version on pack.aiAnalysis (Mixed) after Gate1
   {
     const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
     const {
@@ -510,21 +578,21 @@ async function approveRequirementPack({
   // Requirement proposal Gate1: materialize FR from srsProposal + mark phase_what approved
   {
     const {
-      isWhatG4Enabled,
       markPhaseWhatGate1Approved,
-      hasReadyG4Understanding,
+      hasReadySrsProposal,
+      stripLegacyUnderstandingBlobs,
     } = require('../utils/aiAnalysis/whatRequirementPolicy');
-    const { materializeG4IntoPack } = require('../utils/aiAnalysis/materializeG4IntoPack');
+    const { materializeProposalIntoPack } = require('../utils/aiAnalysis/materializeProposalIntoPack');
     const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
     const {
       materializeSrsDraft,
       approveSrsDraft,
     } = require('../utils/srsProposal/approvedSrsVersionManifest');
     const { isReviewComplete, computeReviewSummary } = require('../utils/srsProposal/review');
-    if (isWhatG4Enabled() && hasReadyG4Understanding(pack)) {
+    if (hasReadySrsProposal(pack)) {
       const analyses = pack.aiAnalysis?.analyses || {};
+      stripLegacyUnderstandingBlobs(analyses);
       const proposal = analyses.srsProposal || null;
-      const legacyG4 = analyses.frUnderstanding || analyses.g4Understanding || null;
       let meta = { seededFr: 0, skipped: true };
       // Prefer full overlay from confirmed proposal (replace intake) over merge-only materialize
       if (proposal?.generated) {
@@ -535,11 +603,10 @@ async function approveRequirementPack({
           skipped: !overlaid.changed,
           source: 'overlay_confirmed_what',
         };
-      } else {
-        const seedSource = legacyG4;
-        const { pack: seeded, meta: matMeta } = materializeG4IntoPack(
+      } else if (proposal) {
+        const { pack: seeded, meta: matMeta } = materializeProposalIntoPack(
           pack.toObject ? pack.toObject() : pack,
-          seedSource
+          proposal
         );
         meta = matMeta;
         if (!meta.skipped && Array.isArray(seeded.functionalRequirements)) {
@@ -585,9 +652,13 @@ async function approveRequirementPack({
           },
         };
       }
-      // Epic→Story SoT for HOW. Stamp on PO approve even when other sections
-      // still have blocking items — WBS reads this tree, not the review summary.
-      if (proposal) {
+      // Epic→Story SoT for HOW. Prefer structure already hard-gated above.
+      if (pendingApprovedBacklogStructure) {
+        container.analyses = {
+          ...(container.analyses || {}),
+          approvedBacklogStructure: pendingApprovedBacklogStructure,
+        };
+      } else if (proposal) {
         const {
           materializeApprovedBacklogStructure,
         } = require('../utils/srsProposal/materializeApprovedBacklogStructure');
@@ -609,18 +680,27 @@ async function approveRequirementPack({
         packId: String(packId),
         seededFr: meta.seededFr,
         reviewComplete: proposal ? isReviewComplete(proposal) : false,
+        storyCount: Array.isArray(pendingApprovedBacklogStructure?.stories)
+          ? pendingApprovedBacklogStructure.stories.length
+          : 0,
       });
     }
   }
 
-  if (gate1.override) {
+  if (gate1.override || missingApprovedBacklogOverride) {
     const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    const reason = String(
+      (gate1.override && gate1.override.reason) || overrideReason || ''
+    )
+      .trim()
+      .slice(0, 2000);
     shell.gate1Override = {
       forceApprove: true,
-      reason: gate1.override.reason,
-      missingGateA: Boolean(gate1.override.missingGateA),
+      reason,
+      missingGateA: Boolean(gate1.override?.missingGateA),
+      missingApprovedBacklog: Boolean(missingApprovedBacklogOverride),
       gateA: gate1.gateA,
-      conflictAmbiguity: gate1.override.conflictAmbiguity || null,
+      conflictAmbiguity: gate1.override?.conflictAmbiguity || null,
       by: userId,
       at: new Date().toISOString(),
     };
@@ -629,9 +709,10 @@ async function approveRequirementPack({
     logger.warn('[requirement] Gate1 forceApprove', {
       packId: String(packId),
       userId: String(userId),
-      missingGateA: gate1.override.missingGateA,
-      conflictAmbiguity: Boolean(gate1.override.conflictAmbiguity),
-      reasonLen: String(gate1.override.reason || '').length,
+      missingGateA: gate1.override?.missingGateA,
+      missingApprovedBacklog: missingApprovedBacklogOverride,
+      conflictAmbiguity: Boolean(gate1.override?.conflictAmbiguity),
+      reasonLen: reason.length,
     });
   }
 
@@ -831,7 +912,7 @@ async function createProjectFromRequirementPack({
     pack.aiAnalysis = shell;
     pack.markModified('aiAnalysis');
     const { logger } = require('@enterprise/shared');
-    logger.warn('[requirement] Gate2 G13 forceApprove (create-project)', {
+    logger.warn('[requirement] Gate2 feasibility forceApprove (create-project)', {
       packId: String(packId),
       userId: String(userId),
       reasonLen: String(g13Gate.override.reason || '').length,
@@ -941,29 +1022,57 @@ async function createProjectFromRequirementPack({
   }
 
   let analysisSeed = null;
-  try {
+  {
     const { seedArtifactsFromRequirementPack, linkPackDocumentsToProject } = require('./analysis.service');
-    analysisSeed = await seedArtifactsFromRequirementPack({
+    try {
+      analysisSeed = await seedArtifactsFromRequirementPack({
+        userId,
+        projectId,
+        pack: linked.toObject(),
+      });
+    } catch (seedErr) {
+      logger.warn('[requirement] analysis artifact seed failed', {
+        projectId: String(projectId),
+        packId: String(packId),
+        message: String(seedErr?.message || seedErr),
+      });
+    }
+    try {
+      const linkedDocs = await linkPackDocumentsToProject({
+        organizationId,
+        packId,
+        projectId,
+      });
+      analysisSeed = {
+        ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
+        linkedDocumentCount: linkedDocs.modified,
+      };
+    } catch (linkErr) {
+      logger.warn('[requirement] link pack documents failed', {
+        projectId: String(projectId),
+        packId: String(packId),
+        message: String(linkErr?.message || linkErr),
+      });
+    }
+  }
+
+  let howMaterialize = null;
+  try {
+    const { materializeGate2HowArtifacts } = require('./gate2PromoteMaterialize.service');
+    howMaterialize = await materializeGate2HowArtifacts({
       userId,
-      projectId,
-      pack: linked.toObject(),
-    });
-    const linkedDocs = await linkPackDocumentsToProject({
       organizationId,
-      packId,
       projectId,
+      boardId: boardId ? String(boardId) : null,
+      packId,
+      pack: linked.toObject(),
+      importStats,
     });
-    analysisSeed = {
-      ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
-      linkedDocumentCount: linkedDocs.modified,
-    };
-  } catch (seedErr) {
-    logger.warn(
-      '[requirement] analysis artifact seed failed project=%s pack=%s: %s',
-      String(projectId),
-      String(packId),
-      seedErr?.message || seedErr
-    );
+  } catch (matErr) {
+    logger.warn('[requirement] gate2 how materialize failed', {
+      projectId: String(projectId),
+      message: String(matErr?.message || matErr),
+    });
   }
 
   return {
@@ -971,6 +1080,7 @@ async function createProjectFromRequirementPack({
     project,
     importStats,
     analysisSeed,
+    howMaterialize,
     linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
   };
 }

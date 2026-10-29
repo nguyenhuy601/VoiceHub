@@ -1,9 +1,9 @@
 /**
- * Track A / RULE-09 — Snapshot is the immutable boundary before G1/G7/G4 projections.
+ * Track A / RULE-09 — Snapshot is the immutable boundary before knowledgeCatalog/rag/FR projections.
  * Catalogs and RAG must not run on pack-only / CURRENT live payloads.
  */
 
-const { assertSnapshotBind } = require('./g2G3G6Deps');
+const { assertSnapshotBind } = require('./knowledgeSourceDeps');
 
 /**
  * @param {{
@@ -22,7 +22,7 @@ function assertSnapshotBoundary(input = {}) {
   const snapshot = input.snapshot;
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     const err = new Error(
-      'Snapshot payload required before G1/G7/G4 (Track A SNAP boundary)'
+      'Snapshot payload required before knowledgeCatalog/rag/FR (Track A SNAP boundary)'
     );
     err.code = 'SNAPSHOT_PAYLOAD_REQUIRED';
     err.statusCode = 422;
@@ -47,7 +47,7 @@ function assertSnapshotBoundary(input = {}) {
     snapshot.overview != null ||
     snapshot.pack != null ||
     snapshot.functionalRequirements != null ||
-    snapshot.g1Catalogs != null ||
+    snapshot.knowledgeCatalogs != null ||
     snapshot.skillCatalog != null ||
     (Array.isArray(snapshot.corpus) && snapshot.corpus.length > 0);
 
@@ -60,7 +60,7 @@ function assertSnapshotBoundary(input = {}) {
     throw err;
   }
 
-  // Stamp bind id onto payload for downstream G1/G7/G4 (immutable for this run)
+  // Stamp bind id onto payload for downstream knowledgeCatalog/rag/FR (immutable for this run)
   if (!embeddedId) {
     snapshot.snapshotId = snapshotId;
   }

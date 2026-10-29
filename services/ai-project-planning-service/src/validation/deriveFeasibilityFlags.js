@@ -1,5 +1,5 @@
 /**
- * Derive G13 feasibility flags from G18 toolResults + container (single-SNAP).
+ * Derive feasibility feasibility flags from HOW tool sequence toolResults + container (single-SNAP).
  * HARD-01: read real capacityConflicts + recommendation overload; no silent pass.
  * No live CURRENT reads.
  */
@@ -131,11 +131,17 @@ function deriveFeasibilityFlags(input = {}) {
     Number(analyses.risk?.summary?.highCount || analyses.risk?.highCount || 0) > 0 ||
     String(analyses.risk?.overallLevel || '').toLowerCase() === 'high';
 
-  const coverageOk =
+  const { evaluateWbsCoverageFromContainer } = require('./wbsCoverageGate');
+  const wbsCoverage = evaluateWbsCoverageFromContainer(container);
+  // generationSucceeded (leaves/tools) ≠ coverageComplete — fail when AC gap stamped.
+  const generationOk =
     tasks.length > 0 ||
     toolRan(toolResults, 'WbsTool') ||
     toolRan(toolResults, 'RequirementAnalysisTool') ||
     toolRan(toolResults, 'WhatFrTool');
+  const coverageOk =
+    generationOk &&
+    (wbsCoverage.legacySoftSkip || wbsCoverage.coverageComplete !== false);
 
   const capacityPlan =
     resource.capacityPlan && typeof resource.capacityPlan === 'object'
@@ -177,7 +183,13 @@ function deriveFeasibilityFlags(input = {}) {
     riskOk: Boolean(riskOk),
     qualityPlanOk: Boolean(qualityPlanOk),
     deployPlanOk: Boolean(deployPlanOk),
+    wbsCoverageOk: Boolean(wbsCoverage.legacySoftSkip || wbsCoverage.coverageComplete),
+    wbsCoverageFailure: asArray(wbsCoverage.failures)[0] || null,
   };
+}
+
+function asArray(v) {
+  return Array.isArray(v) ? v : [];
 }
 
 module.exports = {

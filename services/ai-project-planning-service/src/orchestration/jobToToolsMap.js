@@ -1,5 +1,5 @@
 /**
- * HOW phase G18 tool sequence — phase-only SoT (no job-id execute map).
+ * HOW phase HOW tool sequence tool sequence — phase-only SoT (no job-id execute map).
  * RULE-PO-05: Selective filters this list by toolName.
  *
  * ScheduleTool: matching + capacity + empty sprint windows; Sprint HOW LLM owns Story→Sprint.
@@ -11,7 +11,8 @@
  */
 
 const HOW_PHASE_TOOL_STEPS = Object.freeze([
-  { toolName: 'WbsTool', autoConfirm: true, mode: 'llm' },
+  // autoConfirm false: staged WBS checkpoint (AGENT_CORE_HITL_WBS_CHECKPOINT) before dependents.
+  { toolName: 'WbsTool', autoConfirm: false, mode: 'llm' },
   { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm' },
   { toolName: 'RiskTool', autoConfirm: true, mode: 'llm' },
   { toolName: 'QualityPlanTool', autoConfirm: true, mode: 'llm' },

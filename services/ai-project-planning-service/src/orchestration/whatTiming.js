@@ -10,10 +10,10 @@ function emptyStages() {
     /** @deprecated alias — legacy timing payloads */
     understand: null,
     // Stage timing keys kept for progress mappers (FR pipeline meta.stageTimings)
-    g4_semantic: null,
-    g4_conflict: null,
-    g4_synthesis: null,
-    g4_total: null,
+    fr_semantic: null,
+    fr_conflict: null,
+    fr_synthesis: null,
+    fr_total: null,
     bg_derive: null,
     /** Nested wall inside bg_derive (FR LLM decompose); excluded from sumStages. */
     fr_decompose: null,
@@ -24,11 +24,11 @@ function emptyStages() {
   };
 }
 
-/** Stages that are exclusive wall slices (avoid double-count nested / G4 sub-stages). */
+/** Stages that are exclusive wall slices (avoid double-count nested FR sub-stages). */
 const SUM_STAGE_KEYS = Object.freeze([
   'hydrate',
   'prepareWhat',
-  'g4_total',
+  'fr_total',
   'bg_derive',
   'engines',
   'meta',

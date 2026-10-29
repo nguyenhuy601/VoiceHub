@@ -212,18 +212,41 @@ function HowLayerChecklist({ layers, t }) {
           </p>
           <ul className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
             {layer.toolIds.map((id) => {
-              const running = layer.state === 'current' && layer.activeToolIds.includes(id);
-              const done = layer.state === 'done';
-              const className = running
-                ? 'font-medium text-foreground'
-                : done
-                  ? 'text-emerald-700 dark:text-emerald-300'
-                  : 'text-muted-foreground';
-              const mark = running ? '● ' : done ? '✓ ' : '○ ';
+              const toolMeta = (layer.tools || []).find((row) => row.id === id);
+              const toolStatus = String(toolMeta?.status || '');
+              const running =
+                toolStatus === 'running' ||
+                (layer.state === 'current' && layer.activeToolIds.includes(id));
+              const blocked = toolStatus === 'blocked';
+              const failed = toolStatus === 'failed';
+              const done =
+                toolStatus === 'succeeded' ||
+                (!blocked && !failed && !running && layer.state === 'done');
+              const className = blocked
+                ? 'font-medium text-amber-800 dark:text-amber-200'
+                : failed
+                  ? 'font-medium text-destructive'
+                  : running
+                    ? 'font-medium text-foreground'
+                    : done
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-muted-foreground';
+              const mark = blocked ? '⚠ ' : failed ? '✗ ' : running ? '● ' : done ? '✓ ' : '○ ';
+              const blockedHint = blocked
+                ? toolMeta?.blockedBy?.length
+                  ? ` — ${labelOf(t, 'requirements.aiHitlMonitorToolBlockedBy', 'chặn bởi: {reasons}').replace(
+                      '{reasons}',
+                      toolMeta.blockedBy.join(', ')
+                    )}`
+                  : toolMeta?.errorMessage
+                    ? ` — ${toolMeta.errorMessage}`
+                    : ` — ${labelOf(t, 'requirements.aiHitlMonitorToolBlocked', 'bị chặn')}`
+                : '';
               return (
-                <li key={id} className={className}>
+                <li key={id} className={className} title={toolMeta?.errorMessage || undefined}>
                   {mark}
                   {labelOf(t, `requirements.aiHitlHowStep_${id}`, id)}
+                  {blockedHint}
                 </li>
               );
             })}
@@ -283,26 +306,35 @@ function ProgressStaleLine({ show, t }) {
 function RunTerminalBanner({ state, errorMessage, actionSlot = null, t }) {
   const isFailed = state === 'failed' || state === 'error';
   const isCancelled = state === 'cancelled';
-  if (!isFailed && !isCancelled) return null;
+  const isIncomplete = state === 'incomplete';
+  if (!isFailed && !isCancelled && !isIncomplete) return null;
+
+  const toneClass = isIncomplete
+    ? 'border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
+    : 'border-destructive/40 bg-destructive/10 text-destructive';
+  const bodyClass = isIncomplete ? 'text-amber-900/90 dark:text-amber-100/90' : 'text-destructive/90';
 
   return (
-    <div
-      className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-      role="alert"
-    >
+    <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${toneClass}`} role="alert">
       <p className="font-semibold text-sm">
         {isCancelled
           ? labelOf(t, 'requirements.aiHitlMonitorRunCancelled', 'Chạy AI đã bị hủy')
-          : labelOf(t, 'requirements.aiHitlMonitorRunFailed', 'Chạy AI thất bại')}
+          : isIncomplete
+            ? labelOf(t, 'requirements.aiHitlMonitorRunIncomplete', 'HOW chưa hoàn tất')
+            : labelOf(t, 'requirements.aiHitlMonitorRunFailed', 'Chạy AI thất bại')}
       </p>
       {errorMessage ? (
-        <p className="mt-1 break-words text-destructive/90">{errorMessage}</p>
+        <p className={`mt-1 break-words ${bodyClass}`}>{errorMessage}</p>
       ) : (
-        <p className="mt-1 text-destructive/80">
+        <p className={`mt-1 ${isIncomplete ? 'opacity-80' : 'text-destructive/80'}`}>
           {labelOf(
             t,
-            'requirements.aiHitlMonitorRunFailedHint',
-            'Xem lại dữ liệu đầu vào hoặc bấm chạy lại khi sẵn sàng.'
+            isIncomplete
+              ? 'requirements.aiHitlMonitorHowIncompleteHint'
+              : 'requirements.aiHitlMonitorRunFailedHint',
+            isIncomplete
+              ? 'HOW dừng chưa hoàn tất. Xem kết quả partial bên dưới; chạy lại HOW nếu cần bổ sung.'
+              : 'Xem lại dữ liệu đầu vào hoặc bấm chạy lại khi sẵn sàng.'
           )}
         </p>
       )}
@@ -497,9 +529,11 @@ function HowMonitorBody({
     return () => clearInterval(id);
   }, [clockLive]);
   const howFailed = vm.state === 'failed' || vm.state === 'cancelled' || vm.state === 'error';
+  const howIncomplete = vm.state === 'incomplete';
+  const howTerminalStopped = howFailed || howIncomplete;
   const activeMacro = phaseDone
     ? 3
-    : howNotStarted || howFailed
+    : howNotStarted || howTerminalStopped
       ? 0
       : vm.macroStep || 1;
 
@@ -521,22 +555,26 @@ function HowMonitorBody({
                 'requirements.aiHitlMonitorHowReady',
                 'Gate 1 xong — chạy AI Planning (HOW) tại đây.'
               )
-            : howFailed
+            : howIncomplete
               ? labelOf(
                   t,
-                  'requirements.aiHitlMonitorHowFailedHint',
-                  'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
+                  'requirements.aiHitlMonitorHowIncompleteHint',
+                  'HOW dừng chưa hoàn tất. Xem kết quả partial bên dưới; chạy lại HOW nếu cần bổ sung.'
                 )
-              : labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
+              : howFailed
+                ? labelOf(
+                    t,
+                    'requirements.aiHitlMonitorHowFailedHint',
+                    'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
+                  )
+                : labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
       </p>
       <ProgressStaleLine show={Boolean(vm.showProgressStale)} t={t} />
       <RunTerminalBanner
         state={vm.state}
         errorMessage={vm.errorMessage}
         actionSlot={
-          vm.state === 'failed' || vm.state === 'cancelled' || vm.state === 'error'
-            ? rerunHowButton
-            : null
+          howTerminalStopped ? rerunHowButton : null
         }
         t={t}
       />
@@ -548,7 +586,7 @@ function HowMonitorBody({
       />
       {!phaseDone &&
       !howNotStarted &&
-      !howFailed &&
+      !howTerminalStopped &&
       activeMacro >= 1 &&
       activeMacro <= 3 ? (
         <div className="mt-2">
@@ -570,6 +608,11 @@ function HowMonitorBody({
           <ActivityLine vm={vm} t={t} />
         </div>
       ) : null}
+      {howIncomplete && !phaseDone && !howNotStarted ? (
+        <div className="mt-2">
+          <HowLayerChecklist layers={vm.planningLayers} t={t} />
+        </div>
+      ) : null}
       {phaseDone ? (
         <>
           <HowLayerChecklist layers={vm.planningLayers} t={t} />
@@ -583,9 +626,9 @@ function HowMonitorBody({
         </>
       ) : null}
       {howNotStarted ? startHowButton : null}
-      {/* Failed: nút nằm trong RunTerminalBanner (actionSlot) — tránh nhân đôi. */}
+      {/* Terminal stop: nút nằm trong RunTerminalBanner (actionSlot) — tránh nhân đôi. */}
       {phaseDone ||
-      (!howNotStarted && !runBusy && !howFailed)
+      (!howNotStarted && !runBusy && !howTerminalStopped)
         ? rerunHowButton
         : null}
       <RunTimingFooter
@@ -623,6 +666,12 @@ export default function AiHitlMonitorPanel({
   onRerunWhat = null,
   onStartHow = null,
   onRerunHow = null,
+  organizationId = null,
+  packId = null,
+  onRefresh = null,
+  onOpenGate2 = null,
+  canConfirmWbs = true,
+  canApprovePlan = false,
   t,
 }) {
   let phase = resolveAiHitlMonitorPhase({
@@ -880,7 +929,16 @@ export default function AiHitlMonitorPanel({
       {!monitorInFlight &&
       resolveMonitorResultsKind(phase, showHowReady) === 'how' &&
       shouldShowHowMonitorResults(pack) ? (
-        <HowMonitorResultsPanel pack={pack} t={t} />
+        <HowMonitorResultsPanel
+          pack={pack}
+          t={t}
+          organizationId={organizationId}
+          packId={packId}
+          onRefresh={onRefresh}
+          onOpenGate2={onOpenGate2}
+          canConfirmWbs={canConfirmWbs}
+          canApprovePlan={canApprovePlan}
+        />
       ) : null}
     </div>
   );

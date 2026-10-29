@@ -1,5 +1,5 @@
 /**
- * G7 keyword retrieve — BM25-lite over corpus docs (Step 4).
+ * RAG keyword retrieve — BM25-lite over corpus docs (Step 4).
  * Scoring ported from phase1EvidenceRetrieve.scoreSpan; intent boosts preferred docTypes.
  */
 

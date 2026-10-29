@@ -96,7 +96,7 @@ function classifyCheckpointLifecycle(input = {}) {
 }
 
 /**
- * Delete G15 when TERMINAL (unless debug keep).
+ * Delete checkpoint when TERMINAL (unless debug keep).
  * @param {string} runId
  * @param {object} classifyInput
  * @param {{ deleteCheckpoint: (id: string) => Promise<unknown>, env?: object }} deps

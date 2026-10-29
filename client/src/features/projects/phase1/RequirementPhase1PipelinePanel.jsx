@@ -30,11 +30,10 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function buildGate1ReviewBundle(pack, g4, proposal) {
+function buildGate1ReviewBundle(pack, proposal) {
   return attachConflictAmbiguityToGate1Bundle(
-    buildGate1ProposalItems({ pack, g4, proposal }),
-    pack,
-    g4
+    buildGate1ProposalItems({ pack, proposal }),
+    pack
   );
 }
 
@@ -108,9 +107,6 @@ export default function RequirementPhase1PipelinePanel({
       }));
     }
     const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
-    const g4 =
-      pack?.aiAnalysis?.analyses?.frUnderstanding ||
-      pack?.aiAnalysis?.analyses?.g4Understanding;
     const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
     const aiCtx = pack?.aiAnalysis?.analyses?.requirementAiContext;
     const knowledgeMeta = pack?.aiAnalysis?.analyses?.phase1Knowledge;
@@ -119,10 +115,9 @@ export default function RequirementPhase1PipelinePanel({
       phaseWhat?.status === 'ready' &&
       (phaseWhat?.mode === 'g4' ||
         phaseWhat?.mode === 'requirement' ||
-        Array.isArray(g4?.requirements) ||
         Array.isArray(proposal?.generated?.functionalRequirements?.items));
     if (g4Ready || (phaseWhat?.mode === 'tools_propose' && phaseWhat?.status === 'ready')) {
-      const gate1Bundle = buildGate1ReviewBundle(pack, g4, proposal);
+      const gate1Bundle = buildGate1ReviewBundle(pack, proposal);
       const reviewItems = gate1Bundle.items;
       setStage2Meta((prev) => ({
         ...(prev || {}),
@@ -425,7 +420,7 @@ export default function RequirementPhase1PipelinePanel({
         {t('requirements.phase1PipelineTitle')}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {t('requirements.phase1PipelineHintG4')}
+        {t('requirements.phase1PipelineHintRequirement')}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

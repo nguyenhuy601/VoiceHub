@@ -83,20 +83,18 @@ function assertPackStatusAllowsAi(pack, job = null) {
   throw err;
 }
 
-/** ADR 0003 RULE-04 — HOW/Planning jobs only after Requirement pack approved. */
+/**
+ * ADR 0003 RULE-04 — HOW/Planning jobs only after Requirement pack approved
+ * + backlog Story SoT (approvedBacklogStructure.stories) so WBS is not empty.
+ * @returns {{ structure: object|null, stories: object[], rematerialized: boolean }|undefined}
+ */
 function assertHowJobsRequireApprovedPack(pack, job) {
   const { isAiAnalysisHowJob } = require('../constants/aiAnalysisJobs.constants');
-  if (!isAiAnalysisHowJob(job)) return;
-  const status = String(pack.status || '');
-  if (status !== 'approved' && status !== 'project_linked') {
-    const err = new Error(
-      'Planning AI jobs (WBS…Project Plan) yêu cầu Requirement pack đã approved — không chạy trên path SRS/Requirement draft'
-    );
-    err.statusCode = 422;
-    err.errorCode = 'AI_ANALYSIS_HOW_REQUIRES_APPROVED';
-    err.details = { status, job };
-    throw err;
-  }
+  if (!isAiAnalysisHowJob(job)) return undefined;
+  const {
+    assertHowPackApprovedWithBacklogStories,
+  } = require('../utils/srsProposal/assertHowApprovedBacklogStories');
+  return assertHowPackApprovedWithBacklogStories(pack, { job });
 }
 
 function ensurePackContainer(pack) {
@@ -519,7 +517,7 @@ async function confirmAiAnalysisJob({
     priorStamps: [{ userId: prior.submittedBy }, { userId: prior.techSubmittedBy }],
   });
   const noteTrim = String(note || '').trim().slice(0, 2000);
-  // Hole #2: do not confirm Gate2 when G13 / quality-deploy DoD fails (unless forceApprove+reason)
+  // Hole #2: do not confirm Gate2 when feasibility / quality-deploy DoD fails (unless forceApprove+reason)
   const {
     assertGate2FeasibilityOrOverride,
   } = require('../utils/tools/assertGate2FeasibilityOrOverride');
@@ -542,6 +540,11 @@ async function confirmAiAnalysisJob({
       },
     };
   }
+  // Revision-tied approve: reject when planManifest tips drifted (legacy packs without ids pass)
+  const {
+    assertGate2PlanManifestOrThrow,
+  } = require('../utils/aiAnalysis/planManifestGuard');
+  assertGate2PlanManifestOrThrow(container);
   container = markPhaseHowConfirmed(container);
   container = stampGate2ReviewLane(container, REVIEW_LANE.DONE, {
     confirmedBy: String(userId),
@@ -565,59 +568,16 @@ async function confirmAiAnalysisJob({
       title: 'Gate 2 — PO đã duyệt kế hoạch',
       content: noteTrim
         ? `PO đã chấp nhận kế hoạch. ${noteTrim}`
-        : 'PO đã chấp nhận kế hoạch HOW — dự án có thể promote sang delivery.',
+        : 'PO đã chấp nhận kế hoạch HOW — chờ xác nhận Chuyển sang phase 2 (promote).',
       kind: 'ai_hitl_gate2_approved',
     });
   }
 
-  // Auto Phase 2 delivery: board tasks + deliveryPhase=development + P3/P4 skeleton
-  let promote = null;
-  let promoteError = null;
-  try {
-    const { autoPromoteAfterGate2PoApprove } = require('./projectPromoteFromGate2.service');
-    promote = await autoPromoteAfterGate2PoApprove({
-      userId,
-      organizationId,
-      packId,
-      forceApprove,
-      overrideReason: String(overrideReason || noteTrim || '').trim().slice(0, 2000),
-    });
-  } catch (promoteErr) {
-    promoteError = {
-      message: String(promoteErr?.message || promoteErr),
-      statusCode: promoteErr?.statusCode || 500,
-      errorCode: promoteErr?.errorCode || 'GATE2_PROMOTE_FAILED',
-    };
-    console.warn('[gate2] auto-promote after po_approve failed', {
-      packId: String(packId),
-      userId: String(userId),
-      message: promoteError.message,
-      errorCode: promoteError.errorCode,
-    });
-  }
-
-  return {
-    phase: 'how',
-    job: 'phase_how',
-    status: 'confirmed',
-    reviewLane: REVIEW_LANE.DONE,
-    schemaVersion: pack.aiAnalysis.schemaVersion,
-    promoted: Boolean(promote?.promoted),
-    promote: promote
-      ? {
-          promoted: true,
-          projectId: String(promote.project?._id || promote.project?.projectId || ''),
-          deliveryPhase: promote.project?.deliveryPhase || 'development',
-          status: promote.project?.status || 'in_development',
-          importStats: promote.importStats || null,
-          phase34: promote.phase34 || null,
-          defaultBoardId: promote.project?.defaultBoardId || null,
-        }
-      : null,
-    promoteError,
-    project: promote?.project || null,
-    pack: promote?.pack || null,
-  };
+  // RULE-S1: approve ≠ promote. Delivery chạy qua create-project sau confirm HITL.
+  const {
+    buildGate2PoApproveConfirmResult,
+  } = require('../utils/aiAnalysis/gate2PoApproveConfirmResult');
+  return buildGate2PoApproveConfirmResult(pack, { reviewLaneDone: REVIEW_LANE.DONE });
 }
 
 const COLLAB_PERMISSION = Object.freeze({
@@ -1009,7 +969,6 @@ async function applyRemoteHowJobResult({
   snapshotId,
   result,
   error,
-  g4Understanding = null,
   frUnderstanding = null,
   proposalFragment = null,
 }) {
@@ -1017,11 +976,8 @@ async function applyRemoteHowJobResult({
   if (jobKey === 'phase_how' || jobKey === 'phase_what') {
     const understanding =
       frUnderstanding ||
-      g4Understanding ||
       result?.frUnderstanding ||
-      result?.g4Understanding ||
       result?.result?.frUnderstanding ||
-      result?.result?.g4Understanding ||
       null;
     return applyRemotePhaseRunResult({
       runId,
@@ -1114,32 +1070,25 @@ async function applyRemotePhaseRunResult({
     if (incoming.resource) container.resource = incoming.resource;
     if (incoming.analyses) {
       const {
-        g4Understanding: _dropG4,
+        g4Understanding: _dropLegacyG4,
         frUnderstanding: _dropFr,
         ...restAnalyses
       } = incoming.analyses;
-      const prevG4 =
-        container.analyses?.frUnderstanding || container.analyses?.g4Understanding;
+      void _dropLegacyG4;
+      void _dropFr;
       container.analyses = { ...(container.analyses || {}), ...restAnalyses };
-      // Never accept new frUnderstanding/g4Understanding writes; keep prior legacy only
-      if (prevG4) {
-        container.analyses.frUnderstanding = prevG4;
-        delete container.analyses.g4Understanding;
-      } else {
-        delete container.analyses.frUnderstanding;
-        delete container.analyses.g4Understanding;
-      }
+      // Pack blobs retired — never persist engine understanding on analyses
+      delete container.analyses.frUnderstanding;
+      delete container.analyses.g4Understanding;
     }
     if (incoming.phaseRuns) {
       container.phaseRuns = { ...(container.phaseRuns || {}), ...incoming.phaseRuns };
     }
     const proposalFragment =
       result.proposalFragment || result.result?.proposalFragment || null;
-    const g4 =
+    const understanding =
       result.frUnderstanding ||
-      result.g4Understanding ||
       result.result?.frUnderstanding ||
-      result.result?.g4Understanding ||
       null;
     const fullSrsProposal =
       result.srsProposal ||
@@ -1148,11 +1097,11 @@ async function applyRemotePhaseRunResult({
       null;
     const legacyPopulate =
       String(process.env.PHASE1_LEGACY_POPULATE_NON_FR || '').trim() === '1';
-    if (job === 'phase_what' && (fullSrsProposal || proposalFragment || g4)) {
+    if (job === 'phase_what' && (fullSrsProposal || proposalFragment || understanding)) {
       try {
         container = applyRequirementProposalToContainer(
           container,
-          fullSrsProposal || proposalFragment || g4,
+          fullSrsProposal || proposalFragment || understanding,
           {
             remoteRunId: String(runId),
             snapshotId: String(snapshotId),
@@ -1177,7 +1126,7 @@ async function applyRemotePhaseRunResult({
         }
         throw casErr;
       }
-      // PLAN B: durable Loop1 reuse (survives parent G15 delete)
+      // PLAN B: durable Loop1 reuse (survives parent checkpoint delete)
       const {
         attachLoop1ReuseToContainer,
       } = require('../utils/aiAnalysis/loop1ReuseArtifact');
@@ -1383,7 +1332,7 @@ async function applyRemotePhaseRunResult({
 
 /**
  * Start agentic HOW / WHAT phase run.
- * WHAT under WHAT_G4_ENABLED: remote G4 on ai-project-planning-service (202).
+ * WHAT: remote requirement phase on ai-project-planning-service (202).
  * prepare_only stays local Stage1.
  */
 /**
@@ -1405,7 +1354,7 @@ async function resumeInRunHitl({
   } = require('../utils/aiAnalysis/inRunHitlKinds');
   const kindNorm = normalizeInRunKind(kind || 'clarify');
   if (!isInRunHitlKind(kindNorm)) {
-    const err = new Error('kind must be clarify or edit_draft');
+    const err = new Error('kind must be clarify, edit_draft, or wbs_confirm');
     err.statusCode = 400;
     err.errorCode = 'IN_RUN_HITL_KIND_INVALID';
     throw err;
@@ -1435,10 +1384,78 @@ async function resumeInRunHitl({
     throw err;
   }
 
+  const resumeBody = resume && typeof resume === 'object' ? { ...resume } : {};
+  let packPin = null;
+
+  // wbs_confirm: pin baseline on Pack SoT (idempotent) before/alongside graph resume
+  if (kindNorm === 'wbs_confirm') {
+    const action = String(resumeBody.action || resumeBody.decision || 'confirm')
+      .trim()
+      .toLowerCase();
+    if (action === 'confirm' || action === 'wbs_confirm' || action === 'approve') {
+      const { pinWbsBaselineOnContainer } = require('../utils/aiAnalysis/wbsBaselinePin');
+      const pinned = pinWbsBaselineOnContainer(container, {
+        revisionId: resumeBody.wbsRevisionId || resumeBody.revisionId || null,
+        actorUserId: String(userId),
+        requestId: resumeBody.requestId || resumeBody.idempotencyKey || null,
+      });
+      pack.aiAnalysis = pinned.container;
+      pack.markModified('aiAnalysis');
+      await pack.save();
+      packPin = {
+        revisionId: pinned.revisionId,
+        duplicated: pinned.duplicated,
+      };
+      resumeBody.action = 'confirm';
+      resumeBody.wbsRevisionId = pinned.revisionId;
+      resumeBody.actorUserId = String(userId);
+    } else if (action === 'save_edit' || action === 'edit') {
+      const { appendPackChangeEvent } = require('../utils/aiAnalysis/wbsBaselinePin');
+      const { getCurrentWbsRevisionId } = require('../utils/aiAnalysis/wbsBaselinePin');
+      const baseRevisionId =
+        resumeBody.baseRevisionId || getCurrentWbsRevisionId(container);
+      if (
+        resumeBody.baseRevisionId &&
+        getCurrentWbsRevisionId(container) &&
+        String(resumeBody.baseRevisionId) !== String(getCurrentWbsRevisionId(container))
+      ) {
+        const err = new Error('baseRevisionId does not match current WBS revision');
+        err.statusCode = 409;
+        err.errorCode = 'REVISION_CONFLICT';
+        throw err;
+      }
+      const appended = appendPackChangeEvent(container, {
+        action: 'human_edit',
+        artifactKind: 'wbs',
+        baseRevisionId,
+        newRevisionId: resumeBody.newRevisionId || null,
+        actor: { userId: String(userId), role: resumeBody.role || 'PM' },
+        reason: resumeBody.reason || '',
+        changes: Array.isArray(resumeBody.changes) ? resumeBody.changes : [],
+        impactAssessmentId: resumeBody.impactAssessmentId || null,
+        requestId: resumeBody.requestId || resumeBody.idempotencyKey || null,
+      });
+      pack.aiAnalysis = appended.container;
+      pack.markModified('aiAnalysis');
+      await pack.save();
+      return {
+        accepted: true,
+        remote: false,
+        action: 'wbs_save_edit',
+        kind: kindNorm,
+        runId: bound,
+        requestId: appended.requestId,
+        duplicated: appended.duplicated,
+        governanceGate: false,
+        note: 'WBS edit recorded on Pack — confirm separately to resume downstream',
+      };
+    }
+  }
+
   const s2s = await aiProjectPlanningClient.resumeRun(bound, {
     action: 'in_run_hitl',
     kind: kindNorm,
-    resume: resume && typeof resume === 'object' ? resume : {},
+    resume: resumeBody,
   });
   if (s2s.status < 200 || s2s.status >= 300) {
     const err = new Error(s2s.data?.message || 'In-run HITL resume rejected');
@@ -1456,6 +1473,7 @@ async function resumeInRunHitl({
     status: s2s.data?.data?.status || s2s.data?.status || 'accepted',
     httpStatus: s2s.status === 202 ? 202 : 200,
     governanceGate: false,
+    wbsBaseline: packPin,
     note: 'In-run HITL only — Gate 1/2 remain Pack HTTP stamps',
   };
 }
@@ -1526,7 +1544,7 @@ async function resumeWhatDataGate({
     decision: decisionNorm,
     legacyDataGateCleanup: true,
     httpStatus: 200,
-    mode: 'g4',
+    mode: 'requirement',
   };
 }
 
@@ -1600,9 +1618,8 @@ async function startPhaseAiPlanningRun({
 
   const phaseJob = String(phase || 'how').trim().toLowerCase() === 'what' ? 'phase_what' : 'phase_how';
   const modeNorm = String(mode || '').trim().toLowerCase();
-  const { isWhatG4Enabled } = require('../utils/aiAnalysis/whatG4Policy');
 
-  // Phase 1 Stage 1 — input readiness (no G4 LLM).
+  // Phase 1 Stage 1 — input readiness (no FR LLM).
   if (phaseJob === 'phase_what' && modeNorm === 'prepare_only') {
     const {
       runPhase1Stage1PrepareInput,
@@ -1615,17 +1632,10 @@ async function startPhaseAiPlanningRun({
   }
 
   // RULE-11: Phase1 intelligence always remote APS (no in-process Ollama / local WHAT jobs).
-  // WHAT_G4_ENABLED=0 legacy paths are retired — fall through to S2S phase_what.
-  if (phaseJob === 'phase_what' && !isWhatG4Enabled()) {
-    console.warn(
-      '[phase_what] WHAT_G4_ENABLED=0 ignored — routing remote APS (RULE-11)'
-    );
-  }
-
-  // WHAT G4 remote (tools_propose / g4 / default) and HOW — S2S below
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  let howBacklogGate = null;
   if (phaseJob === 'phase_how') {
-    assertHowJobsRequireApprovedPack(pack, 'effortRoleAnalysis');
+    howBacklogGate = assertHowJobsRequireApprovedPack(pack, 'effortRoleAnalysis');
   }
   if (phaseJob === 'phase_what') {
     const st = String(pack.status || '');
@@ -1637,14 +1647,29 @@ async function startPhaseAiPlanningRun({
   }
 
   if (phaseJob === 'phase_how') {
+    let howDirty = false;
+    if (howBacklogGate?.rematerialized && howBacklogGate.structure) {
+      const {
+        stampApprovedBacklogStructureOnPack,
+      } = require('../utils/srsProposal/assertHowApprovedBacklogStories');
+      stampApprovedBacklogStructureOnPack(pack, howBacklogGate.structure);
+      howDirty = true;
+      console.info('[phase_how] rematerialized approvedBacklogStructure', {
+        packId: String(packId),
+        storyCount: howBacklogGate.stories.length,
+      });
+    }
     const { overlayConfirmedWhatForHow } = require('../utils/aiAnalysis/overlayConfirmedWhatForHow');
     const overlaid = overlayConfirmedWhatForHow(pack);
     if (overlaid.changed) {
-      await pack.save();
+      howDirty = true;
       console.info('[phase_how] overlay confirmed WHAT', {
         packId: String(packId),
         counts: overlaid.counts,
       });
+    }
+    if (howDirty) {
+      await pack.save();
     }
   }
 
@@ -1678,14 +1703,14 @@ async function startPhaseAiPlanningRun({
       ensureFormValidationOnPack,
       ensurePreparedIntakeForWhat,
     } = require('./whatRequirementPhase.service');
-    const { assertG4CanStart, countValidFr } = require('../utils/requirement/workbookDiagnostic');
+    const { assertRequirementPhaseCanStart, countValidFr } = require('../utils/requirement/workbookDiagnostic');
 
     await ensureFormValidationOnPack(packForPhase);
     if (typeof packForPhase.isModified === 'function' && packForPhase.isModified('aiAnalysis')) {
       await packForPhase.save();
     }
 
-    // Self-heal: validFr=0 OR missing canonicalRaw on Customer Raw → re-prefill, then re-read before G4.
+    // Self-heal: validFr=0 OR missing canonicalRaw on Customer Raw → re-prefill, then re-read before frUnderstanding.
     const prepared = await ensurePreparedIntakeForWhat({
       pack: packForPhase,
       organizationId,
@@ -1721,7 +1746,7 @@ async function startPhaseAiPlanningRun({
       });
     }
 
-    assertG4CanStart(packForPhase, snapshotDoc);
+    assertRequirementPhaseCanStart(packForPhase, snapshotDoc);
   }
 
   let container = ensurePackContainer(packForPhase);
@@ -1743,7 +1768,7 @@ async function startPhaseAiPlanningRun({
       parentRunId: existing.parentRunId || null,
       snapshotId: existing.snapshotId || snapshotId,
       schemaVersion: container.schemaVersion,
-      mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+      mode: phaseJob === 'phase_what' ? 'requirement' : undefined,
       idempotentReplay: true,
       httpStatus: 202,
     };
@@ -1782,7 +1807,7 @@ async function startPhaseAiPlanningRun({
       runId: existing.remoteRunId,
       snapshotId,
       schemaVersion: container.schemaVersion,
-      mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+      mode: phaseJob === 'phase_what' ? 'requirement' : undefined,
       idempotentReplay: true,
       httpStatus: 202,
     };
@@ -1793,7 +1818,7 @@ async function startPhaseAiPlanningRun({
     ...(container.phaseRuns || {}),
     [phaseJob]: {
       status: 'pending',
-      mode: phaseJob === 'phase_what' ? 'g4' : existing?.mode || undefined,
+      mode: phaseJob === 'phase_what' ? 'requirement' : existing?.mode || undefined,
       remoteRunId: expectedRunId,
       snapshotId: String(snapshotId),
       startedAt: new Date().toISOString(),
@@ -2130,7 +2155,7 @@ async function startPhaseAiPlanningRun({
     snapshotId,
     schemaVersion: container.schemaVersion,
     httpStatus: 202,
-    mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+    mode: phaseJob === 'phase_what' ? 'requirement' : undefined,
     ...(loop1Text ? { feedbackApplied: true } : {}),
   };
 }
@@ -2147,7 +2172,12 @@ module.exports = {
   isDuplicateRemoteRun,
   applyRemoteHowJobResult,
   confirmAiAnalysisJob,
+  buildGate2PoApproveConfirmResult: (...args) =>
+    require('../utils/aiAnalysis/gate2PoApproveConfirmResult').buildGate2PoApproveConfirmResult(
+      ...args
+    ),
   exportAiAnalysisSheet11,
+  assertHowJobsRequireApprovedPack,
   assertBlueprintReadyForProjectCreate: (...args) =>
     require('../utils/aiAnalysis/aiAnalysisBlueprintImport').assertBlueprintReadyForProjectCreate(
       ...args
@@ -2156,10 +2186,10 @@ module.exports = {
     require('../utils/aiAnalysis/aiAnalysisBlueprintImport').mapBlueprintTasksToImportPlan(
       ...args
     ),
-  // WHAT G4 policy helpers (tests / Gate1)
+  // WHAT FR policy helpers (tests / Gate1)
   ...(() => {
     try {
-      return require('../utils/aiAnalysis/whatG4Policy');
+      return require('../utils/aiAnalysis/whatRequirementPolicy');
     } catch {
       return {};
     }

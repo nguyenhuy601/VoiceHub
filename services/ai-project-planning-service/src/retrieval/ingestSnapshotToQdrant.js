@@ -13,14 +13,14 @@ const {
   computeIndexCorpusHash,
   CHUNKING_VERSION,
 } = require('./corpusContentHash');
-const { validateVectorDocument } = require('../knowledge/g1CatalogSchemas');
+const { validateVectorDocument } = require('../knowledge/catalogSchemas');
 const { embedTexts, embedVersion } = require('../runtime/ollamaEmbed');
 const {
   EMBED_BATCH_LIMIT,
   isOpenAiCompatibleProvider,
 } = require('@enterprise/shared/llm/openaiCompatibleClient');
 const { createQdrantClient } = require('./qdrantClient');
-const { resolveG7IndexStore } = require('./g7IndexManifest');
+const { resolveG7IndexStore } = require('./ragIndexManifest');
 
 const LOCK_TTL_MS = 180_000;
 const WAIT_READY_MS = 90_000;
@@ -40,7 +40,7 @@ function canonicalPointId(id) {
 }
 
 function isIngestAfterQualityEnabled(env = process.env) {
-  const v = String(env.G7_INGEST_AFTER_QUALITY ?? '1')
+  const v = String(env.RAG_INGEST_AFTER_QUALITY ?? '1')
     .trim()
     .toLowerCase();
   return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
@@ -310,8 +310,8 @@ async function ingestSnapshotToQdrant(opts = {}) {
     }
     locked = await store.acquireLock(snapshotId, token, LOCK_TTL_MS);
     if (!locked) {
-      const err = new Error(`G7 ingest already in progress snapshotId=${snapshotId}`);
-      err.code = 'G7_INGEST_IN_PROGRESS';
+      const err = new Error(`RAG ingest already in progress snapshotId=${snapshotId}`);
+      err.code = 'RAG_INGEST_IN_PROGRESS';
       throw err;
     }
   }

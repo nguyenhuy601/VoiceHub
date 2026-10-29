@@ -1,7 +1,7 @@
 const mongoose = require('../db');
 
 /**
- * G2 — recurrence rule; instances are MeetingEvent with source=recurrence.
+ * sourceManifest — recurrence rule; instances are MeetingEvent with source=recurrence.
  */
 const meetingRecurrenceRuleSchema = new mongoose.Schema(
   {

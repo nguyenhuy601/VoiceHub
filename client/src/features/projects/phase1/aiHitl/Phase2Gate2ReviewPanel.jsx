@@ -17,6 +17,7 @@ import {
   seedGate2EditedPayload,
 } from '../gate2/gate2SectionTableConfig';
 import Gate2SprintScopePanel from '../gate2/Gate2SprintScopePanel';
+import Gate2TcDetailPanel from '../gate2/Gate2TcDetailPanel';
 import AssignmentScheduleDetailDrawer from '../gate2/AssignmentScheduleDetailDrawer';
 import { withRecalcSprintDecision } from '../gate2/recalcSprintAllocationClient';
 import {
@@ -32,7 +33,6 @@ import Gate2ConsolidationPanel from './Gate2ConsolidationPanel';
 import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import DependencyFlowPanel from '../gate2/DependencyFlowPanel';
-import QualityReviewPanel from '../gate2/QualityReviewPanel';
 import {
   assignmentSelectOptions,
   fillUnassignedWithReadyPeople,
@@ -149,11 +149,13 @@ export default function Phase2Gate2ReviewPanel({
   const [activeTrack, setActiveTrack] = useState('');
   const [localDecisions, setLocalDecisions] = useState({});
   const [sprintScopeRow, setSprintScopeRow] = useState(null);
+  const [tcDetailRow, setTcDetailRow] = useState(null);
   const [scheduleDetailRow, setScheduleDetailRow] = useState(null);
   const [scheduleDirty, setScheduleDirty] = useState(false);
   const [dirtySubmitOpen, setDirtySubmitOpen] = useState(false);
   const awaitingScheduleRefreshRef = useRef(false);
   const openSprintScope = useCallback((row) => setSprintScopeRow(row), []);
+  const openTcDetail = useCallback((row) => setTcDetailRow(row), []);
   const openScheduleDetail = useCallback((row) => setScheduleDetailRow(row), []);
   const seededReviewVersionRef = useRef(null);
   const isControlled =
@@ -291,6 +293,7 @@ export default function Phase2Gate2ReviewPanel({
         getGate2ColumnsForSection(section, {
           onOpenSprintScope: openSprintScope,
           onOpenScheduleDetail: openScheduleDetail,
+          onOpenTcDetail: openTcDetail,
         }),
       getSelectOptions: (row, col, payload) =>
         assignmentSelectOptions({
@@ -303,7 +306,7 @@ export default function Phase2Gate2ReviewPanel({
       patchCatalogValue: (row, col, prev, value) =>
         patchAssignmentCatalogValue(row, col?.field, prev, value, { peopleByRole }),
     }),
-    [roleOptions, peopleByRole, openSprintScope, openScheduleDetail]
+    [roleOptions, peopleByRole, openSprintScope, openScheduleDetail, openTcDetail]
   );
   const assignmentPoolFailed = peopleQueries.some((query) => query.isError);
 
@@ -426,7 +429,7 @@ export default function Phase2Gate2ReviewPanel({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              {labelOf(t, 'requirements.promoteProjectRetry', 'Kích hoạt / tiếp tục delivery')}
+              {labelOf(t, 'requirements.gate2PromotePhase2', 'Chuyển sang phase 2')}
             </button>
           </div>
         ) : null}
@@ -450,6 +453,9 @@ export default function Phase2Gate2ReviewPanel({
     activeRows = enrichAssignmentRowsWithSchedule(activeRows, resolveAiContainer(pack), {
       scheduleDirty: true,
     });
+  }
+  if (activeSection === 'quality') {
+    activeRows = activeRows.filter((row) => row?.recordKind !== 'test_strategy');
   }
   const activeLabel = activeTab?.label || activeSection || '—';
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
@@ -499,6 +505,7 @@ export default function Phase2Gate2ReviewPanel({
   const handlePoApprove = () => {
     if (typeof onPoApprove !== 'function') return;
     onPoApprove({
+      activateOnly: howStatus === 'confirmed',
       missingCount,
       conflictSectionCount,
       missingSectionKeys: missingSections.map((tab) => tab.key),
@@ -589,17 +596,17 @@ export default function Phase2Gate2ReviewPanel({
         ariaLabel={labelOf(t, 'requirements.aiHitlMonitorHowSectionTabsAria', 'Các section HOW')}
       />
 
-      {activeSection === 'quality' ? (
-        <QualityReviewPanel
-          pack={pack}
-          rows={activeRows}
-          decisions={decisions}
-          setDecision={setDecision}
-          showSubmit={allowDecide}
-          t={t}
-        />
-      ) : activeSection && !activeMissing && activeRows.length ? (
+      {activeSection && !activeMissing && activeRows.length ? (
         <>
+          {activeSection === 'quality' ? (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {labelOf(
+                t,
+                'requirements.qualityReviewListHint',
+                'Chờ duyệt là trạng thái rà soát. Chưa chạy nghĩa là chưa thực thi. Ready không có nghĩa là đã kiểm thử thành công.'
+              )}
+            </p>
+          ) : null}
           {activeSection === 'dependencies' ? (
             <DependencyFlowPanel pack={pack} rows={activeRows} t={t} />
           ) : null}
@@ -674,6 +681,11 @@ export default function Phase2Gate2ReviewPanel({
           <Gate2SprintScopePanel
             row={sprintScopeRow}
             onClose={() => setSprintScopeRow(null)}
+            t={t}
+          />
+          <Gate2TcDetailPanel
+            row={tcDetailRow}
+            onClose={() => setTcDetailRow(null)}
             t={t}
           />
           <AssignmentScheduleDetailDrawer
@@ -754,8 +766,8 @@ export default function Phase2Gate2ReviewPanel({
                 <CheckCircle2 className="h-4 w-4" />
               )}
               {howStatus === 'confirmed'
-                ? labelOf(t, 'requirements.promoteProjectRetry', 'Thử kích hoạt lại')
-                : labelOf(t, 'requirements.gate2PoApprove', 'Duyệt Gate 2 & kích hoạt')}
+                ? labelOf(t, 'requirements.gate2PromotePhase2', 'Chuyển sang phase 2')
+                : labelOf(t, 'requirements.gate2PoApprove', 'Duyệt Gate 2')}
             </button>
             {howStatus !== 'confirmed' ? (
               <button

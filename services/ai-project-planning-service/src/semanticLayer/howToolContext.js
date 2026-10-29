@@ -108,11 +108,7 @@ function buildCatalog(opts, scope) {
     snapshot: opts.snapshot,
     container,
     stories: storyRows(opts),
-    understanding:
-      pack?.aiAnalysis?.requirementUnderstanding ||
-      pack?.aiAnalysis?.frUnderstanding ||
-      pack?.aiAnalysis?.g4Understanding ||
-      null,
+    understanding: pack?.aiAnalysis?.requirementUnderstanding || null,
   });
   const frs = store.entities
     .filter((row) => row.entityType === 'functional_requirement')

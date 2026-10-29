@@ -27,7 +27,7 @@ function buildTaskPrompt(task, rows, contextText = '') {
   const retrieved = String(contextText || '').trim();
   if (retrieved) {
     lines.push(
-      'Retrieved snapshot context (G7). Use as supporting evidence. Do not invent ids outside the rows and this context.',
+      'Retrieved snapshot context (RAG). Use as supporting evidence. Do not invent ids outside the rows and this context.',
       retrieved
     );
   }
@@ -90,7 +90,7 @@ async function runSemanticTask(opts = {}) {
   }
 
   const rows = Array.isArray(opts.rows) ? opts.rows : [];
-  // FR uses snapshot/corpus; empty sheet is handled inside frRuntimeFn / G4 (data gate).
+  // FR uses snapshot/corpus; empty sheet is handled inside frRuntimeFn / FR (data gate).
   const sourceEmpty = task.id === 'fr' ? false : isSourceEmpty(rows);
   const policy = resolveTaskPolicy(task.id, {
     sourceEmpty,
@@ -98,7 +98,7 @@ async function runSemanticTask(opts = {}) {
     env: opts.env,
   });
 
-  // FR special: always via Runtime wrapper when provided (RULE — no G4 bypass)
+  // FR special: always via Runtime wrapper when provided (RULE — no FR bypass)
   if (task.id === 'fr' && typeof opts.frRuntimeFn === 'function') {
     const frPolicy =
       policy === TASK_POLICIES.SKIP ? TASK_POLICIES.SKIP : TASK_POLICIES.RUN;

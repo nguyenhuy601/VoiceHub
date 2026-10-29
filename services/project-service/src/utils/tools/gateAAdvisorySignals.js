@@ -92,17 +92,12 @@ function listFrItems(pack, aiAnalysis) {
 
 /**
  * Exact FR id duplicates + identical normalized titles (no semantic LLM).
- * Also merges G4 normalize duplicate ids when present.
  */
 function collectDuplicateSignals({ pack, aiAnalysis } = {}) {
-  const analyses = aiAnalysis?.analyses || pack?.aiAnalysis?.analyses || {};
-  const g4Dupes = (analyses.frUnderstanding || analyses.g4Understanding)?.duplicates;
-  const fromG4 = Array.isArray(g4Dupes) ? g4Dupes.map((id) => String(id)) : [];
-
   const items = listFrItems(pack, aiAnalysis);
   const byId = new Map();
   const byTitle = new Map();
-  const duplicateIds = new Set(fromG4.filter(Boolean));
+  const duplicateIds = new Set();
   const duplicateTitles = [];
 
   for (let i = 0; i < items.length; i += 1) {

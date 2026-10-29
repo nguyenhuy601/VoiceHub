@@ -1,5 +1,5 @@
 /**
- * G7 retrieve via Qdrant — always filter by run snapshotId (RULE-09 / single-SNAP).
+ * RAG retrieve via Qdrant — always filter by run snapshotId (RULE-09 / single-SNAP).
  */
 
 const { embedText } = require('../runtime/ollamaEmbed');
@@ -38,7 +38,7 @@ async function retrieveQdrant(args = {}) {
   );
   if (!emb.ok) {
     const err = new Error(emb.error || 'embed_failed');
-    err.code = 'G7_EMBED_FAILED';
+    err.code = 'RAG_EMBED_FAILED';
     throw err;
   }
 

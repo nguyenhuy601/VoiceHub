@@ -1,15 +1,15 @@
 /**
  * Evidence / provenance helper (Build Spec §3.8 + Track C).
  * Every tool business claim must attach evidence[].
- * Confidence alone never satisfies RULE-10 / G13.
- * G1: when metric is set, it must resolve in platform metric catalog (unless G1_METRIC_ENFORCE=0).
+ * Confidence alone never satisfies RULE-10 / feasibility.
+ * knowledgeCatalog: when metric is set, it must resolve in platform metric catalog (unless KNOWLEDGE_METRIC_ENFORCE=0).
  */
 
 const {
   resolveMetric,
   isMetricEnforceEnabled,
   catalogMiss,
-} = require('../knowledge/g1CatalogSchemas');
+} = require('../knowledge/catalogSchemas');
 
 let evidenceSeq = 0;
 

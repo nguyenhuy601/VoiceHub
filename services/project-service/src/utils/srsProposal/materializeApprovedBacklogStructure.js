@@ -1,9 +1,27 @@
 /**
- * Stamp analyses.approvedBacklogStructure = re-derive from Gate1 FR decisions + epics catalog.
- * R5: do not require backlogStructure row decisions; Story = accepted FR.
+ * Stamp analyses.approvedBacklogStructure from Gate1 draft when publishable.
+ * Fail-closed: no Story=FR invent — requires shapeVersion backlog-structure (+ legacy mid-flag).
+ * Stories must pass AC contract (acRefs non-empty + resolvable vs FR.AC).
  */
 
-const { deriveBacklogFromFrEpics } = require('./deriveBacklogFromFrEpics');
+const { filterStoriesByAcContract } = require('./storyAcContract');
+
+const BACKLOG_STRUCTURE_SHAPE = 'backlog-structure';
+const LEGACY_BACKLOG_SHAPE = 'backlog-structure-v3';
+
+function isPublishableBacklogStructure(structure) {
+  const shape = structure?.meta?.shapeVersion;
+  const shapeOk = shape === BACKLOG_STRUCTURE_SHAPE || shape === LEGACY_BACKLOG_SHAPE;
+  return (
+    structure &&
+    typeof structure === 'object' &&
+    shapeOk &&
+    structure.meta?.publishable !== false &&
+    !(Array.isArray(structure.identityReview) && structure.identityReview.length) &&
+    Array.isArray(structure.stories) &&
+    structure.stories.length > 0
+  );
+}
 
 /** Temporary fr-from-cr chunk prefix: `c0-EPIC-IOT` → `EPIC-IOT`. */
 function stripChunkIdPrefix(raw) {
@@ -18,54 +36,6 @@ function cleanEpicTitle(name, id) {
   if (!raw || raw === idStr || raw === cleanId) return cleanId;
   if (/^c\d+-/i.test(raw)) return stripChunkIdPrefix(raw) || raw;
   return raw;
-}
-
-function normalizeStructure(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const epics = Array.isArray(raw.epics) ? raw.epics : [];
-  const stories = Array.isArray(raw.stories) ? raw.stories : [];
-  if (!stories.length && !epics.length) return null;
-  return {
-    epics: epics
-      .map((e) => {
-        const rawId = String(e.id || '').trim();
-        const id = stripChunkIdPrefix(rawId) || rawId;
-        return {
-          id,
-          name: cleanEpicTitle(e.name || e.title, rawId),
-          description: e.description || e.goal || undefined,
-          sourceFrIds: Array.isArray(e.sourceFrIds) ? e.sourceFrIds.map(String) : [],
-          storyIds: Array.isArray(e.storyIds) ? e.storyIds.map(String) : [],
-          rationale: e.rationale || undefined,
-        };
-      })
-      .filter((e) => e.id),
-    stories: stories
-      .map((s) => ({
-        id: String(s.id || '').trim(),
-        name: String(s.name || s.title || s.id || '').trim(),
-        description: s.description || undefined,
-        parentEpicId:
-          s.parentEpicId === undefined || s.parentEpicId === null || s.parentEpicId === ''
-            ? null
-            : stripChunkIdPrefix(String(s.parentEpicId).trim()) ||
-              String(s.parentEpicId).trim(),
-        sourceFrIds: Array.isArray(s.sourceFrIds) ? s.sourceFrIds.map(String) : [],
-        sourceUcIds: Array.isArray(s.sourceUcIds) ? s.sourceUcIds.map(String) : [],
-        acRefs: Array.isArray(s.acRefs) ? s.acRefs.map(String) : [],
-        needsDecomposition: s.needsDecomposition !== false,
-        rationale: s.rationale || undefined,
-      }))
-      .filter((s) => s.id && Array.isArray(s.sourceFrIds) && s.sourceFrIds.length),
-    features: [],
-    unmappedFrIds: Array.isArray(raw.unmappedFrIds) ? raw.unmappedFrIds.map(String) : [],
-    openQuestions: Array.isArray(raw.openQuestions) ? raw.openQuestions : [],
-    meta: {
-      ...(raw.meta && typeof raw.meta === 'object' ? raw.meta : {}),
-      source: 'gate1_approved',
-      approvedAt: new Date().toISOString(),
-    },
-  };
 }
 
 function isRejectedDecision(d) {
@@ -122,14 +92,11 @@ function collectAcceptedFrAndEpics(proposal) {
 
     const parentRaw =
       item.parentEpicId === undefined || item.parentEpicId === null || item.parentEpicId === ''
-        ? item.parentEpicId === null
-          ? null
-          : null
+        ? null
         : String(item.parentEpicId).trim();
     const parentEpicId =
       parentRaw == null ? null : stripChunkIdPrefix(parentRaw) || parentRaw;
 
-    // R4: epicTitle on FR edit → catalog only; never change parentEpicId.
     if (payload?.epicTitle != null && parentEpicId) {
       const title = cleanEpicTitle(payload.epicTitle, parentEpicId);
       if (title) {
@@ -167,81 +134,69 @@ function collectAcceptedFrAndEpics(proposal) {
 }
 
 /**
+ * Count FR items that would be accepted (non-rejected) — used by Gate1 hard-gate.
+ * @param {object|null} proposal
+ * @returns {number}
+ */
+function countAcceptedFrItems(proposal) {
+  return collectAcceptedFrAndEpics(proposal).accepted.length;
+}
+
+/**
  * @param {object|null} proposal — srsProposal
  * @returns {object|null}
  */
 function materializeApprovedBacklogStructure(proposal) {
-  const { accepted, epics } = collectAcceptedFrAndEpics(proposal);
+  const generated =
+    proposal?.generated && typeof proposal.generated === 'object' ? proposal.generated : {};
+  const draft = generated.backlogStructure;
 
-  // Prefer re-derive from FR decisions (R5). Fallback to legacy tree filter if no FR items.
-  if (accepted.length) {
-    const derived = deriveBacklogFromFrEpics(accepted, epics, {
-      backlogSource: 'derived_from_fr_epic',
-    });
-    if (derived.ok) {
-      return {
-        ...derived.backlogStructure,
-        meta: {
-          ...derived.backlogStructure.meta,
-          source: 'gate1_approved',
-          approvedAt: new Date().toISOString(),
-        },
-      };
+  if (!isPublishableBacklogStructure(draft)) {
+    if (draft && Array.isArray(draft.stories) && draft.stories.length) {
+      console.warn(
+        '[materializeApprovedBacklogStructure] backlog_not_publishable',
+        draft.meta?.shapeVersion || 'missing_shape',
+        draft.meta?.publishable === false ? 'not_publishable' : '',
+        (draft.identityReview || []).length ? 'identity_review' : ''
+      );
     }
-    // Fail-closed: do not invent stories from stale backlogStructure decisions.
+    return null;
+  }
+
+  const { accepted: frItems } = collectAcceptedFrAndEpics(proposal);
+  const filtered = filterStoriesByAcContract(draft.stories, frItems);
+  if (!filtered.stories.length) {
     console.warn(
-      '[materializeApprovedBacklogStructure] derive_fail',
-      (derived.errors || []).join(',')
+      '[materializeApprovedBacklogStructure] stories_fail_ac_contract',
+      (filtered.reasonCodes || []).join(',') || 'MISSING_ACCEPTANCE_CRITERIA',
+      `rejected=${filtered.rejected.length}`
     );
     return null;
   }
 
-  // Legacy packs without FR parentEpicId map — last-resort filter of stored tree.
-  const raw = proposal?.generated?.backlogStructure;
-  const normalized = normalizeStructure(raw);
-  if (!normalized) return null;
-
-  const decisions =
-    proposal?.review?.decisions && typeof proposal.review.decisions === 'object'
-      ? proposal.review.decisions
-      : {};
-
-  function isRejected(id) {
-    const d = decisions[id] || decisions[`backlogStructure:${id}`];
-    return isRejectedDecision(d);
-  }
-
-  const nextEpics = normalized.epics.filter((e) => !isRejected(e.id));
-  const epicIds = new Set(nextEpics.map((e) => e.id));
-  const stories = normalized.stories
-    .filter((s) => !isRejected(s.id))
-    .map((s) => {
-      if (s.parentEpicId && !epicIds.has(s.parentEpicId)) {
-        return { ...s, parentEpicId: null };
-      }
-      return s;
-    });
-
-  if (!stories.length) return null;
-
-  for (const epic of nextEpics) {
-    epic.storyIds = stories.filter((s) => s.parentEpicId === epic.id).map((s) => s.id);
-  }
-
+  const approvedBaselineVersion =
+    draft.meta?.approvedBaselineVersion || `baseline-${Date.now().toString(36)}`;
   return {
-    ...normalized,
-    epics: nextEpics,
-    stories,
+    ...draft,
+    stories: filtered.stories,
     meta: {
-      ...normalized.meta,
-      epicCount: nextEpics.length,
-      storyCount: stories.length,
+      ...draft.meta,
+      source: 'gate1_approved',
+      shapeVersion: BACKLOG_STRUCTURE_SHAPE,
+      approvedAt: new Date().toISOString(),
+      approvedBaselineVersion,
+      acContractRejected: filtered.rejected.length
+        ? filtered.rejected.slice(0, 40)
+        : undefined,
+      acContractReasonCodes: filtered.reasonCodes.length ? filtered.reasonCodes : undefined,
     },
   };
 }
 
 module.exports = {
   materializeApprovedBacklogStructure,
-  normalizeStructure,
   collectAcceptedFrAndEpics,
+  countAcceptedFrItems,
+  isPublishableBacklogStructure,
+  BACKLOG_STRUCTURE_SHAPE,
 };

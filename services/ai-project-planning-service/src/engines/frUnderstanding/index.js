@@ -1,24 +1,22 @@
 /**
- * FR-owned understanding StateGraph (ex-G4).
- * Production SoT: whatPhaseGraph node `runFrUnderstanding` (Pattern B).
+ * Legacy FR understanding graph removed.
+ * Production: semantic/frSectionHooks.runFrSectionDerive via WhatFrTool.
  */
 
-const {
-  PROMPT_VERSION,
-  buildFrUnderstandingGraph,
-  runUnderstandPrefix,
-  hasResumePartial,
-  invokeFrUnderstandingStandalone,
-  mapOptsToFrState,
-  mapFrStateToPipelineResult,
-} = require('./frUnderstandingGraph');
+function removed(name) {
+  const err = new Error(
+    `${name} removed: FR runs via WhatFrTool → src/semantic/frSectionHooks.`
+  );
+  err.code = 'FR_UNDERSTANDING_REMOVED';
+  throw err;
+}
 
 module.exports = {
-  PROMPT_VERSION,
-  buildFrUnderstandingGraph,
-  runUnderstandPrefix,
-  hasResumePartial,
-  invokeFrUnderstandingStandalone,
-  mapOptsToFrState,
-  mapFrStateToPipelineResult,
+  PROMPT_VERSION: 'removed-use-semantic_fr_section_v1',
+  buildFrUnderstandingGraph: () => removed('buildFrUnderstandingGraph'),
+  runUnderstandPrefix: () => removed('runUnderstandPrefix'),
+  hasResumePartial: () => false,
+  invokeFrUnderstandingStandalone: () => removed('invokeFrUnderstandingStandalone'),
+  mapOptsToFrState: () => removed('mapOptsToFrState'),
+  mapFrStateToPipelineResult: () => removed('mapFrStateToPipelineResult'),
 };

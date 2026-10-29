@@ -5,7 +5,7 @@
  */
 
 const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
-const { deriveBacklogFromFrEpics } = require('./deriveBacklogFromFrEpics');
+const { buildBacklogStructureFromFr } = require('./backlogStructure/buildBacklogStructureFromFr');
 
 const NAME_MAX = 240;
 
@@ -32,13 +32,15 @@ function frPayload(items = []) {
 }
 
 function buildAssignFrEpicsPrompt({ frRows = [], localeInstruction = '' } = {}) {
+  const { HIERARCHY_PROMPT_RULES } = require('../semantic/hierarchyPromptRules');
   return [
     localeInstruction || 'Respond in the same language as FR titles.',
     'Assign FR→Epic JSON only. No prose. Do NOT invent or rewrite Story/FR titles or AC.',
-    'Shape:{"epics":[{"id","name"}],"links":[{"frId","parentEpicId"}]}',
+    'Shape:{"epics":[{"id","name"}],"features":[{"id","name","parentEpicId"}]?,"links":[{"frId","parentEpicId","parentFeatureId?"}]}',
+    HIERARCHY_PROMPT_RULES,
     'Rules: every frId from FR_LIST exactly once; parentEpicId = epics[].id or null for root;',
-    'epic id stable when possible (EPIC-THEME); epic name = outcome theme label only;',
-    'do not drop FR; do not change FR name.',
+    'epic id stable when possible (EPIC-THEME); epic name = business outcome / multi-capability goal — never "hard tech work";',
+    'optional Feature when several FRs share one capability; do not drop FR; do not change FR name.',
     `FR_LIST=${JSON.stringify(frRows)}`,
   ].join('\n');
 }
@@ -213,18 +215,25 @@ async function assignFrEpicsWithLlm(opts = {}) {
     };
   }
 
-  const derived = deriveBacklogFromFrEpics(accepted.items, accepted.epics, {
-    backlogSource: 'assigned_fr_epics',
+  const built = await buildBacklogStructureFromFr({
+    frItems: accepted.items,
+    epicsCatalog: accepted.epics,
+    packId: opts.packId || 'pack',
+    sourceSnapshotVersion: opts.sourceSnapshotVersion,
+    generateJsonFn: opts.generateJsonFn,
+    env: opts.env || process.env,
   });
-  if (!derived.ok) {
+  if (!built.ok) {
     return {
       ok: false,
       items: accepted.items,
       epics: accepted.epics,
       backlogStructure: null,
       meta: {
-        fallbackReason: (derived.errors || ['derive_fail']).join(','),
-        reasonCodes: derived.errors || ['derive_fail'],
+        fallbackReason: built.code || 'backlog_structure_failed',
+        reasonCodes: [built.code || 'backlog_structure_failed'],
+        needsReview: Boolean(built.needsReview),
+        identityReview: built.identityReview || [],
         llmCalls: 1,
         llmMs: Date.now() - t0,
       },
@@ -235,14 +244,15 @@ async function assignFrEpicsWithLlm(opts = {}) {
     ok: true,
     items: accepted.items,
     epics: accepted.epics,
-    backlogStructure: derived.backlogStructure,
+    backlogStructure: built.backlogStructure,
     meta: {
       source: 'llm_assign_fr_epics',
-      backlogSource: 'assigned_fr_epics',
+      backlogSource: 'backlog_structure',
       llmCalls: 1,
       llmMs: Date.now() - t0,
       epicCount: accepted.epics.length,
       frOut: accepted.items.length,
+      draftRevisionId: built.draftRevisionId,
     },
   };
 }

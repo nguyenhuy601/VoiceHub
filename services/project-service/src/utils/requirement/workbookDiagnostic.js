@@ -1,5 +1,5 @@
 /**
- * One workbook FR diagnostic schema for project-service, UI, and the G4 guard.
+ * One workbook FR diagnostic schema for project-service, UI, and the FR guard.
  * Mapping failures stay on mappingDiagnostic. They are not workbook reason codes.
  */
 
@@ -174,7 +174,7 @@ function assertSnapshotFrAlignment(packFr, snapshot) {
 
 /**
  * Customer Raw intake (no FR hierarchy) — RULE-NO-FR-HIERARCHY-RAW-01.
- * Form OK ≠ đủ dữ liệu G4; FR section vẫn bắt buộc qua assertRequiredIntakeSections.
+ * Form OK ≠ đủ dữ liệu frUnderstanding; FR section vẫn bắt buộc qua assertRequiredIntakeSections.
  */
 function isCustomerRawIntakePack(pack) {
   const form = pack?.aiAnalysis?.formValidation;
@@ -212,7 +212,7 @@ function packNeedsCanonicalRawBackfill(pack) {
   return !(cr && typeof cr === 'object' && cr.registryVersion);
 }
 
-/** WHAT/G4 required intake sections — FR required, NFR optional. */
+/** WHAT/FR required intake sections — FR required, NFR optional. */
 const REQUIRED_WHAT_INTAKE_SECTIONS = Object.freeze({
   functionalRequirements: true,
   nonFunctionalRequirements: false,
@@ -232,7 +232,7 @@ function countValidFr(pack) {
 }
 
 /**
- * RULE-FORM-01 + required sections: formOk alone is not enough for G4/LLM.
+ * RULE-FORM-01 + required sections: formOk alone is not enough for frUnderstanding/LLM.
  * @param {{ formOk?: boolean|null, validFr?: number, validNfr?: number }} input
  */
 function assertRequiredIntakeSections(input = {}) {
@@ -254,7 +254,7 @@ function assertRequiredIntakeSections(input = {}) {
   }
 }
 
-function assertG4CanStart(pack, snapshot) {
+function assertRequirementPhaseCanStart(pack, snapshot) {
   const form = pack?.aiAnalysis?.formValidation;
   const diagnostic = pack?.aiAnalysis?.workbookDiagnostic;
   const validFr = countValidFr(pack);
@@ -271,10 +271,10 @@ function assertG4CanStart(pack, snapshot) {
     throw err;
   }
 
-  // RULE-FORM-01: formOk necessary; FR section required before G4/LLM (not hierarchy volume).
+  // RULE-FORM-01: formOk necessary; FR section required before LLM (not hierarchy volume).
   if (form && form.ok === true) {
     // eslint-disable-next-line no-console
-    console.info('[assertG4CanStart] path=raw_form', { formOk: true, validFr });
+    console.info('[assertRequirementPhaseCanStart] path=raw_form', { formOk: true, validFr });
     assertRequiredIntakeSections({ formOk: true, validFr, validNfr });
     if (snapshot && Array.isArray(pack?.functionalRequirements) && pack.functionalRequirements.length) {
       assertSnapshotFrAlignment(pack.functionalRequirements, snapshot);
@@ -285,7 +285,7 @@ function assertG4CanStart(pack, snapshot) {
   // Raw intake signals without form.ok — still require FR before LLM.
   if (isCustomerRawIntakePack(pack)) {
     // eslint-disable-next-line no-console
-    console.info('[assertG4CanStart] path=raw_intake', {
+    console.info('[assertRequirementPhaseCanStart] path=raw_intake', {
       formOk: form?.ok ?? null,
       recognized: Boolean(form?.recognizedAsCustomerRaw),
       validFr,
@@ -303,9 +303,12 @@ function assertG4CanStart(pack, snapshot) {
 
   // RULE-ANALYSIS-FR-01: Analysis workbook still needs FR diagnostic READY
   // eslint-disable-next-line no-console
-  console.info('[assertG4CanStart] path=analysis_fr', { formOk: form?.ok ?? null, validFr });
+  console.info('[assertRequirementPhaseCanStart] path=analysis_fr', {
+    formOk: form?.ok ?? null,
+    validFr,
+  });
   if (!isRequirementReady(diagnostic)) {
-    const err = new Error('Requirement workbook is not ready for G4');
+    const err = new Error('Requirement workbook is not ready for WHAT phase');
     err.statusCode = 422;
     err.errorCode = 'REQUIREMENT_NOT_READY';
     err.reasonCodes = Array.isArray(diagnostic?.reasonCodes) ? diagnostic.reasonCodes : [];
@@ -332,5 +335,5 @@ module.exports = {
   assertRequiredIntakeSections,
   hashFunctionalRequirements,
   assertSnapshotFrAlignment,
-  assertG4CanStart,
+  assertRequirementPhaseCanStart,
 };

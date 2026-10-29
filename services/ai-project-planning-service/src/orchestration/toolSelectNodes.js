@@ -271,7 +271,7 @@ async function decideToolCalls(state, opts = {}) {
     prompt,
     temperature: 0.1,
     numPredict: 512,
-    timeoutMs: Number(env.G17_LLM_TIMEOUT_MS) || 120000,
+    timeoutMs: Number(env.AI_PLANNING_LLM_TIMEOUT_MS) || 120000,
     env,
   });
 
@@ -795,7 +795,23 @@ async function executeHowToolCall(state, toolName, args, hooks = {}) {
       toolOut?.result?.container && typeof toolOut.result.container === 'object'
         ? toolOut.result.container
         : null;
-    const containerPatch = sparseContainerPatch(layerBase, rawPatch);
+    let containerPatch = sparseContainerPatch(layerBase, rawPatch);
+    // Immutable WBS revision stamp after successful WbsTool (RULE-REV-01) — always on.
+    if (toolName === 'WbsTool' && containerPatch) {
+      try {
+        const { stampWbsRevisionAfterTool } = require('../planningRevision/wbsCheckpoint');
+        const stamped = stampWbsRevisionAfterTool(containerPatch, {
+          runId: state.runId || null,
+          toolName: 'WbsTool',
+        });
+        containerPatch = stamped.container;
+      } catch (stampErr) {
+        console.warn(
+          '[WbsTool] revision stamp failed: %s',
+          String(stampErr?.message || stampErr).slice(0, 160)
+        );
+      }
+    }
     const execution = createToolExecution({
       toolName,
       status: 'succeeded',
@@ -804,6 +820,13 @@ async function executeHowToolCall(state, toolName, args, hooks = {}) {
       outputValidated: true,
       outputRef: `${toolName}:${inputHash}`,
       startedAt: new Date(stepStarted).toISOString(),
+      inputRevisionId:
+        toolName === 'WbsTool'
+          ? null
+          : containerPatch?.planning?.wbsBaselineRevisionId ||
+            containerPatch?.planning?.currentRevisionIds?.wbs ||
+            layerBase?.planning?.wbsBaselineRevisionId ||
+            null,
     });
     return {
       toolExecutions: [execution],
@@ -894,7 +917,48 @@ async function executeWhatToolCall(state, toolName, args, hooks = {}) {
     const proposal = ensureProposal(state);
     const env = state.env || process.env;
 
-    if (engineId && engineId !== 'fr') {
+    if (engineId === 'fr') {
+      const { runFrSectionDerive } = require('../semantic/frSectionHooks');
+      const { applyFrToolToState } = require('./whatPhaseToolNodes');
+      const frSem = await runFrSectionDerive({
+        snapshot: state.snapshot || null,
+        pack: state.pack || {},
+        frOpts: state.frOpts || {},
+        env,
+        generateJsonFn: state.generateJsonFn || null,
+        snapshotId: state.snapshotId || null,
+        runId: state.runId || null,
+      });
+      const applied = applyFrToolToState(state, frSem);
+      const durationMs = Math.max(0, Date.now() - stepStarted);
+      const containerBase =
+        state.container && typeof state.container === 'object' ? state.container : {};
+      let containerPatch = null;
+      if (applied.srsProposal) {
+        containerPatch = sparseContainerPatch(containerBase, {
+          analyses: {
+            ...(containerBase.analyses || {}),
+            srsProposal: applied.srsProposal,
+          },
+        });
+      }
+      return {
+        ...applied,
+        toolResults: [{ toolName: WHAT_FR_TOOL, durationMs, engineId: 'fr' }],
+        history: [`execute:${WHAT_FR_TOOL}`],
+        currentToolName: WHAT_FR_TOOL,
+        container: containerPatch || undefined,
+        messages: [
+          {
+            role: 'tool',
+            name: WHAT_FR_TOOL,
+            content: JSON.stringify({ ok: true, durationMs, pipeline: 'semantic_fr_section_v1' }),
+          },
+        ],
+      };
+    }
+
+    if (engineId) {
       const prepared = prepareSectionDerive({
         engineId,
         pack: state.pack || {},

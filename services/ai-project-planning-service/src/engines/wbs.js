@@ -43,6 +43,9 @@ const WBS_META_KEYS = Object.freeze([
   'jobId',
   'runId',
   'inputSnapshotId',
+  'coverageComplete',
+  'generationSucceeded',
+  'approvableHint',
 ]);
 
 function sanitizeWbsMeta(meta = {}) {

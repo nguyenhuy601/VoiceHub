@@ -1,6 +1,6 @@
 /**
- * WHAT / G4 progress catalog and the slim data-gate preview.
- * Substep ids match execution order inside frUnderstandingGraph.
+ * WHAT progress catalog and the slim data-gate preview.
+ * Substep ids align with historical WHAT macro steps (Monitor / HITL).
  */
 
 const FLAGGED_CAP = 30;
@@ -26,7 +26,7 @@ const SUBSTEPS = {
   validate: { step: 4, substep: 'validate' },
   synthesis: { step: 4, substep: 'synthesis' },
   evidence: { step: 4, substep: 'evidence' },
-  /** Analysis proposal generation (LLM derive) — after G4, before metaGate */
+  /** Analysis proposal generation (LLM derive) — before metaGate */
   derive: { step: 4, substep: 'derive' },
   observe: { step: 4, substep: 'observe' },
   evaluate_local: { step: 4, substep: 'evaluate_local' },

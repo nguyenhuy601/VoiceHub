@@ -1,6 +1,6 @@
 /**
  * JEV control layer (P7) — provider-agnostic advisory (RULE-12).
- * Does NOT replace G13, tools, or Gate auto-approve.
+ * Does NOT replace feasibility, tools, or Gate auto-approve.
  * Enable: JEV_CONTROL=1
  */
 
@@ -35,7 +35,7 @@ function evaluateJev1Context({ contextPackage, citations } = {}) {
 }
 
 /**
- * JEV2 — model route hint for G17 (advisory).
+ * JEV2 — model route hint for LLM runtime (advisory).
  * @returns {{ kind: 'jev2', route: 'small'|'reasoning', reason: string }}
  */
 function evaluateJev2ModelRoute({ riskLevel, complexity } = {}) {
@@ -47,7 +47,7 @@ function evaluateJev2ModelRoute({ riskLevel, complexity } = {}) {
 }
 
 /**
- * JEV3 — supervisor hint for G8 evaluate (advisory; never flips G13).
+ * JEV3 — supervisor hint for evaluate evaluate (advisory; never flips feasibility).
  * @returns {{ kind: 'jev3', suggest: 'CONTINUE'|'RETRIEVE'|'NEED_TOOL', confidence: number, reason: string }}
  */
 function evaluateJev3Supervisor({

@@ -150,8 +150,23 @@ function isInFlightStatus(status) {
   return ['pending', 'running', 'queued', 'waiting_external'].includes(norm(status));
 }
 
+/** Hard tool/provider failure — not incomplete/stopped. */
+function isHardFailStatus(status) {
+  return ['failed', 'error'].includes(norm(status));
+}
+
+/** Phase stopped short of Gate2 ready (emitIncomplete) — not the same as hard fail. */
+function isIncompleteTerminalStatus(status) {
+  return ['incomplete', 'stopped'].includes(norm(status));
+}
+
+/** Any non-success terminal used for wall-clock / stale liveRun checks. */
 function isTerminalFailStatus(status) {
-  return ['failed', 'error', 'stopped', 'incomplete', 'cancelled'].includes(norm(status));
+  return (
+    isHardFailStatus(status) ||
+    isIncompleteTerminalStatus(status) ||
+    norm(status) === 'cancelled'
+  );
 }
 
 function isCallbackHandoff(liveRun, phaseMeta = null) {
@@ -360,8 +375,26 @@ export function resolveHowActiveStepId(liveRun = null, phaseMeta = null) {
   return null;
 }
 
-function buildPlanningLayerView(runningToolIds, phaseDone) {
+function latestToolExecutionMap(toolExecutions) {
+  /** @type {Map<string, object>} */
+  const map = new Map();
+  for (const row of Array.isArray(toolExecutions) ? toolExecutions : []) {
+    const id = catalogId(row?.toolName) || String(row?.toolName || '').trim();
+    if (!id || !PLANNING_TOOL_IDS.has(id)) continue;
+    const prev = map.get(id);
+    const attempt = Number(row.attempt) || 0;
+    const prevAttempt = Number(prev?.attempt) || 0;
+    if (!prev || attempt >= prevAttempt) map.set(id, row);
+  }
+  return map;
+}
+
+/**
+ * Soft Kahn layers + per-tool status from BE toolExecutions (blocked/failed/…).
+ */
+function buildPlanningLayerView(runningToolIds, phaseDone, toolExecutions = []) {
   const active = new Set(runningToolIds || []);
+  const execByTool = latestToolExecutionMap(toolExecutions);
   let currentLayerIndex = -1;
   HOW_PLANNING_LAYERS.forEach((layer, index) => {
     if (layer.some((id) => active.has(id))) currentLayerIndex = index;
@@ -370,11 +403,36 @@ function buildPlanningLayerView(runningToolIds, phaseDone) {
     let state = 'pending';
     if (phaseDone || (currentLayerIndex >= 0 && index < currentLayerIndex)) state = 'done';
     else if (index === currentLayerIndex) state = 'current';
+    const tools = toolIds.map((id) => {
+      const row = execByTool.get(id);
+      const execStatus = row ? norm(row.status) : '';
+      let toolState = 'pending';
+      if (execStatus === 'blocked') toolState = 'blocked';
+      else if (execStatus === 'failed') toolState = 'failed';
+      else if (execStatus === 'skipped') toolState = 'skipped';
+      else if (execStatus === 'succeeded') toolState = 'succeeded';
+      else if (active.has(id) || ['running', 'waiting_external', 'queued', 'pending', 'retrying'].includes(execStatus)) {
+        toolState = 'running';
+      } else if (state === 'done') {
+        toolState = 'succeeded';
+      }
+      const blockedBy = Array.isArray(row?.blockedBy) ? row.blockedBy.map(String) : [];
+      const errorMessage = row?.error?.message
+        ? String(row.error.message).slice(0, 240)
+        : '';
+      return {
+        id,
+        status: toolState,
+        blockedBy,
+        errorMessage,
+      };
+    });
     return {
       index: index + 1,
       toolIds: [...toolIds],
       state,
       activeToolIds: toolIds.filter((id) => active.has(id)),
+      tools,
     };
   });
 }
@@ -384,6 +442,7 @@ function resolveHowActivity(liveRun, state, runningToolIds = []) {
     state === 'waiting_human' ||
     state === 'succeeded' ||
     state === 'failed' ||
+    state === 'incomplete' ||
     state === 'cancelled' ||
     state === 'idle'
   ) {
@@ -479,11 +538,14 @@ function resolveHowActivity(liveRun, state, runningToolIds = []) {
 }
 
 /**
+ * Map liveRun + phase_how status → Monitor UX state.
+ * incomplete/stopped ≠ failed (RULE-FE-01).
  * @param {object|null} liveRun
  * @param {object|null} phaseHow
  * @param {number} [now]
+ * @returns {'waiting_human'|'succeeded'|'cancelled'|'incomplete'|'failed'|'finalizing'|'queued'|'running'|'idle'}
  */
-function normalizeHowRunStatus(liveRun, phaseHow, now = Date.now()) {
+export function normalizeHowRunStatus(liveRun, phaseHow, now = Date.now()) {
   const live = norm(liveRun?.status);
   const phase = norm(phaseHow?.status);
   if (live === 'waiting_human' || phase === 'waiting_human') return 'waiting_human';
@@ -494,6 +556,10 @@ function normalizeHowRunStatus(liveRun, phaseHow, now = Date.now()) {
   // Prefer phase terminal over a stale liveRun still marked running.
   if (isTerminalFailStatus(phase) || isTerminalFailStatus(live)) {
     if (live === 'cancelled' || phase === 'cancelled') return 'cancelled';
+    if (isIncompleteTerminalStatus(phase)) return 'incomplete';
+    if (isHardFailStatus(phase)) return 'failed';
+    if (isIncompleteTerminalStatus(live)) return 'incomplete';
+    if (isHardFailStatus(live)) return 'failed';
     return 'failed';
   }
   if (
@@ -531,10 +597,11 @@ export function resolveHowProgressViewModel(
 ) {
   const state = normalizeHowRunStatus(liveRun, phaseHow, now);
   const phaseDone = state === 'succeeded';
-  const runningToolIds =
-    phaseDone || state === 'failed' || state === 'cancelled'
-      ? []
-      : resolveHowRunningToolIds(liveRun, phaseHow);
+  const terminalStopped =
+    state === 'failed' || state === 'incomplete' || state === 'cancelled';
+  const runningToolIds = phaseDone || terminalStopped
+    ? []
+    : resolveHowRunningToolIds(liveRun, phaseHow);
   const stepId = phaseDone
     ? HOW_MONITOR_STEPS[HOW_MONITOR_STEPS.length - 1].id
     : resolveHowActiveStepId(liveRun, phaseHow);
@@ -570,6 +637,7 @@ export function resolveHowProgressViewModel(
   const terminal =
     state === 'succeeded' ||
     state === 'failed' ||
+    state === 'incomplete' ||
     state === 'cancelled' ||
     state === 'waiting_human';
   // Never freeze while agent is still computing — Gate1 scope rollup / leftover propose
@@ -602,7 +670,10 @@ export function resolveHowProgressViewModel(
     now,
   });
   // Zombie / wall-timeout: never show multi-hour "elapsed" when FE forced terminal.
-  if ((wallTimedOut || state === 'failed' || state === 'cancelled') && maxLive > 0) {
+  if (
+    (wallTimedOut || state === 'failed' || state === 'incomplete' || state === 'cancelled') &&
+    maxLive > 0
+  ) {
     elapsedMs = Math.min(elapsedMs, maxLive);
   }
 
@@ -611,9 +682,13 @@ export function resolveHowProgressViewModel(
       ? Math.max(0, now - progressUpdatedAt)
       : elapsedMs;
 
-  const activity = resolveHowActivity(liveRun, state, runningToolIds);
-  const planningLayers = buildPlanningLayerView(runningToolIds, phaseDone || state === 'finalizing');
   const toolExecutions = resolveHowToolExecutions(liveRun, phaseHow);
+  const activity = resolveHowActivity(liveRun, state, runningToolIds);
+  const planningLayers = buildPlanningLayerView(
+    runningToolIds,
+    phaseDone || state === 'finalizing',
+    toolExecutions
+  );
   const showSpinner = state === 'running' || state === 'queued' || state === 'finalizing';
   const waitingHuman = state === 'waiting_human';
   const staleThresholdMs = WHAT_MONITOR_CONFIG.progressStaleMs;
@@ -623,35 +698,38 @@ export function resolveHowProgressViewModel(
     Number.isFinite(staleThresholdMs) &&
     progressStaleMs >= staleThresholdMs;
   let errorMessage = resolveHowRunErrorMessage(liveRun, phaseHow);
-  if (state === 'failed' && !errorMessage) {
-    if (isTerminalFailStatus(liveRun?.status) || isTerminalFailStatus(phaseHow?.status)) {
-      errorMessage = 'HOW dừng chưa hoàn tất (stopped/incomplete).';
-    } else if (wallTimedOut) {
+  if (state === 'incomplete' && !errorMessage) {
+    errorMessage = 'HOW dừng chưa hoàn tất (incomplete/stopped). Xem kết quả partial và chạy lại nếu cần.';
+  } else if (state === 'failed' && !errorMessage) {
+    if (wallTimedOut) {
       errorMessage =
         'Phiên HOW quá hạn / mất tín hiệu tiến độ — đã dừng đồng hồ. Chạy lại HOW nếu cần.';
+    } else {
+      errorMessage = 'HOW thất bại. Xem lại dữ liệu đầu vào hoặc chạy lại.';
     }
   }
 
-  const failedOrCancelled = state === 'failed' || state === 'cancelled';
-  // Don't keep "Chuẩn bị" as current when run already terminal-failed.
-  const displayMacroStep = failedOrCancelled ? 0 : macroStep;
+  // Don't keep "Chuẩn bị" as current when run already terminal-stopped.
+  const displayMacroStep = terminalStopped ? 0 : macroStep;
+  const isIncomplete = state === 'incomplete';
+  const isHardFailed = state === 'failed' || state === 'cancelled';
 
   return {
     phase: 'how',
     state,
     macroStep: displayMacroStep,
-    activeStepId: failedOrCancelled ? null : activeStepId,
-    activeStepIds: failedOrCancelled
+    activeStepId: terminalStopped ? null : activeStepId,
+    activeStepIds: terminalStopped
       ? []
       : activeStepIds || (activeStepId ? [activeStepId] : []),
-    activeIndex: failedOrCancelled ? -1 : activeIndex,
-    activeIndices: failedOrCancelled ? null : activeIndices,
+    activeIndex: terminalStopped ? -1 : activeIndex,
+    activeIndices: terminalStopped ? null : activeIndices,
     planningLayers,
     toolExecutions,
     showPlanningLayers:
-      !phaseDone && !failedOrCancelled && macroStep === 2 && state !== 'finalizing',
+      !phaseDone && !terminalStopped && macroStep === 2 && state !== 'finalizing',
     activeMacroSubsteps:
-      failedOrCancelled || !macroDef ? [] : [...macroDef.substeps],
+      terminalStopped || !macroDef ? [] : [...macroDef.substeps],
     activity,
     elapsedMs,
     progressStaleMs,
@@ -659,26 +737,30 @@ export function resolveHowProgressViewModel(
     errorMessage,
     showSpinner,
     waitingHuman,
-    titleKey: failedOrCancelled
+    titleKey: terminalStopped
       ? 'requirements.aiHitlMonitorHowTitle'
       : state === 'finalizing'
         ? 'requirements.aiHitlHowFinalizing'
         : macroDef?.labelKey || 'requirements.aiHitlMonitorHowTitle',
-    titleFallback: failedOrCancelled
+    titleFallback: terminalStopped
       ? 'Phase HOW'
       : state === 'finalizing'
         ? 'Saving results'
         : macroDef?.fallback || 'Phase HOW',
-    descriptionKey: failedOrCancelled
-      ? 'requirements.aiHitlMonitorHowFailedHint'
-      : state === 'finalizing'
-        ? 'requirements.aiHitlHowFinalizingDesc'
-        : macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',
-    descriptionFallback: failedOrCancelled
-      ? 'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
-      : state === 'finalizing'
-        ? 'Analysis finished. Writing each section onto the pack.'
-        : macroDef?.descriptionFallback || 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
+    descriptionKey: isIncomplete
+      ? 'requirements.aiHitlMonitorHowIncompleteHint'
+      : isHardFailed
+        ? 'requirements.aiHitlMonitorHowFailedHint'
+        : state === 'finalizing'
+          ? 'requirements.aiHitlHowFinalizingDesc'
+          : macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',
+    descriptionFallback: isIncomplete
+      ? 'HOW dừng chưa hoàn tất. Xem kết quả partial bên dưới; chạy lại HOW nếu cần bổ sung.'
+      : isHardFailed
+        ? 'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
+        : state === 'finalizing'
+          ? 'Analysis finished. Writing each section onto the pack.'
+          : macroDef?.descriptionFallback || 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
     runId: liveRun?.runId || phaseHow?.remoteRunId || null,
     progressUpdatedAt: liveRun?.progressUpdatedAt || null,
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,

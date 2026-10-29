@@ -61,25 +61,6 @@ function normalizeGateShape(raw, source) {
  * @returns {{ passed: boolean, blocking: array, source: string } | null}
  */
 function resolveConflictAmbiguityFromPack(pack) {
-  const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
-  const g4 = analyses.frUnderstanding || analyses.g4Understanding;
-
-  const fromG4 =
-    g4?.requirementIntegrityGate ||
-    g4?.conflictAmbiguityGate ||
-    g4?.meta?.requirementIntegrityGate ||
-    g4?.meta?.conflictAmbiguityGate;
-  const frPath = analyses.frUnderstanding
-    ? 'analyses.frUnderstanding'
-    : 'analyses.g4Understanding';
-  const normalizedG4 = normalizeGateShape(
-    fromG4,
-    g4?.requirementIntegrityGate
-      ? `${frPath}.requirementIntegrityGate`
-      : `${frPath}.conflictAmbiguityGate`
-  );
-  if (normalizedG4) return normalizedG4;
-
   const phaseWhat =
     pack?.aiAnalysis?.phaseRuns?.phase_what || pack?.phaseRuns?.phase_what || {};
   const fromPhase =
@@ -92,53 +73,18 @@ function resolveConflictAmbiguityFromPack(pack) {
   );
   if (normalizedPhase) return normalizedPhase;
 
-  // Derive lightly from raw g4 arrays if gate object missing (legacy)
-  if (g4 && typeof g4 === 'object') {
-    const ambiguities = Array.isArray(g4.ambiguities) ? g4.ambiguities : [];
-    const rejected = Array.isArray(g4.rejectedRelationships)
-      ? g4.rejectedRelationships
-      : [];
-    const dataIssues = ambiguities.filter(
-      (a) => String(a?.kind || '') === 'incomplete_fields' || !a?.kind
-    );
-    const conflicts = rejected.filter((r) =>
-      HARD_REL_CODES.has(String(r.validationError || r.code || ''))
-    );
-    if (dataIssues.length || conflicts.length) {
-      const blocking = [
-        ...dataIssues.map((a) => ({
-          ...a,
-          blockKind: 'data_integrity',
-          kind: a.kind || 'incomplete_fields',
-        })),
-        ...conflicts.map((c) => ({
-          ...c,
-          blockKind: 'relationship_integrity',
-          code: c.validationError || c.code,
-        })),
-      ];
-      return {
-        passed: false,
-        blocking,
-        warnings: [],
-        ambiguities: dataIssues,
-        conflicts,
-        source: 'derived_g4_arrays',
-        gateKind: 'requirement_integrity',
-      };
-    }
-    if (Array.isArray(g4.requirements) || g4.meta) {
-      return {
-        passed: true,
-        blocking: [],
-        warnings: [],
-        ambiguities: [],
-        conflicts: [],
-        source: 'derived_g4_clean',
-        gateKind: 'requirement_integrity',
-      };
-    }
-  }
+  // Soft gaps may live on srsProposal completeness (no pack understanding blob)
+  const proposal =
+    pack?.aiAnalysis?.analyses?.srsProposal || pack?.analyses?.srsProposal || null;
+  const fromProposal =
+    proposal?.generated?.functionalRequirements?.meta?.requirementIntegrityGate ||
+    proposal?.meta?.requirementIntegrityGate ||
+    null;
+  const normalizedProposal = normalizeGateShape(
+    fromProposal,
+    'analyses.srsProposal.requirementIntegrityGate'
+  );
+  if (normalizedProposal) return normalizedProposal;
 
   return null;
 }
@@ -256,7 +202,7 @@ function decisionAction(decisions, logicalId) {
 
 /**
  * Re-evaluate integrity blocking against BA review (edit/reject/create) + proposal content.
- * Snapshot gate from G4 can stay stale after BA Sửa / Từ chối / Thêm dòng.
+ * Snapshot gate from FR can stay stale after BA Sửa / Từ chối / Thêm dòng.
  */
 function filterIntegrityBlockingByBaReview(pack, blocking) {
   const list = Array.isArray(blocking) ? blocking : [];

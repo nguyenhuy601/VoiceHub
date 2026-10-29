@@ -255,10 +255,10 @@ services:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
       # DashScope free embed when LLM_PROVIDER=openai_compatible|dashscope; Ollama tags ignored in code
-      - G7_EMBEDDING_MODEL=${G7_EMBEDDING_MODEL:-text-embedding-v4}
-      - G7_EMBEDDING_VERSION=${G7_EMBEDDING_VERSION:-dashscope-text-embedding-v4}
-      - G7_EMBED_DIMENSIONS=${G7_EMBED_DIMENSIONS:-1024}
-      - G7_RAG_MODE=${G7_RAG_MODE:-hybrid}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      - RAG_EMBEDDING_VERSION=${RAG_EMBEDDING_VERSION:-dashscope-text-embedding-v4}
+      - RAG_EMBED_DIMENSIONS=${RAG_EMBED_DIMENSIONS:-1024}
+      - RAG_MODE=${RAG_MODE:-hybrid}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-vh_ai_plan_g7}
       # In-run HITL only (clarify/edit_draft). Gate 1/2 stay HTTP on project-service.

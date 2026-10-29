@@ -12,12 +12,14 @@ import {
   getGate2RowId,
 } from '../gate2/gate2SectionTableConfig';
 import Gate2SprintScopePanel from '../gate2/Gate2SprintScopePanel';
+import Gate2TcDetailPanel from '../gate2/Gate2TcDetailPanel';
 import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
 import DependencyFlowPanel from '../gate2/DependencyFlowPanel';
-import QualityReviewPanel from '../gate2/QualityReviewPanel';
+import WbsCheckpointBar from './WbsCheckpointBar';
+import { getArtifactStaleMap } from './wbsCheckpointState';
 
 function resolvePackRefId(raw) {
   if (raw && typeof raw === 'object') return String(raw._id || raw.id || '').trim();
@@ -51,10 +53,17 @@ function sectionHasIssue(tab, bySection) {
   return isMissing || hasConflict;
 }
 
-function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok', onOpenSprintScope = null }) {
+function ReadOnlyResultsTable({
+  section,
+  rows,
+  t,
+  headerTone = 'ok',
+  onOpenSprintScope = null,
+  onOpenTcDetail = null,
+}) {
   const columns = useMemo(
-    () => getGate2ColumnsForSection(section, { onOpenSprintScope }),
-    [section, onOpenSprintScope]
+    () => getGate2ColumnsForSection(section, { onOpenSprintScope, onOpenTcDetail }),
+    [section, onOpenSprintScope, onOpenTcDetail]
   );
   const [visibleCount, setVisibleCount] = useState(GATE2_SCROLL_PAGE_SIZE);
   const sentinelRef = useRef(null);
@@ -251,11 +260,22 @@ function EmptySectionPanel({ section, pack, t }) {
 }
 
 /**
- * Monitor HOW results — read-only; no role gate (BA / PO / PM).
+ * Monitor HOW results — read-only tables; WBS checkpoint CTAs when staged HITL applies.
  */
-export default function HowMonitorResultsPanel({ pack = null, t }) {
+export default function HowMonitorResultsPanel({
+  pack = null,
+  t,
+  organizationId = null,
+  packId = null,
+  onRefresh = null,
+  onOpenGate2 = null,
+  canConfirmWbs = true,
+  canApprovePlan = false,
+}) {
   const projectId = resolvePackProjectId(pack);
-  const nameByUserId = useProjectMemberNames(projectId, resolvePackOrgId(pack));
+  const orgId = organizationId || resolvePackOrgId(pack);
+  const resolvedPackId = packId || resolvePackRefId(pack?._id || pack?.id);
+  const nameByUserId = useProjectMemberNames(projectId, orgId);
   const bundle = useMemo(
     () => buildGate2ProposalItems({ pack, nameByUserId, t }),
     [pack, nameByUserId, t]
@@ -263,10 +283,22 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
   const bySection = bundle.proposalBySection || {};
   const sectionTabs = bundle.proposalSections || [];
   const hasRows = (bundle.items || []).length > 0;
+  // Parent gates with shouldShowHowMonitorResults — allow 0-row panels when
+  // Dependency analysisStatus meta exists (COMPLETE_NO_EDGES / FAILED / …).
+  const showEmptyMetaOnly = !hasRows && shouldShowHowMonitorResults(pack);
+
+  const staleMap = getArtifactStaleMap(pack);
+  const staleHint = Object.keys(staleMap).length
+    ? Object.entries(staleMap)
+        .map(([k, v]) => `${k}:${v?.action || 'stale'}`)
+        .join(', ')
+    : '';
 
   const [activeSection, setActiveSection] = useState('');
   const [sprintScopeRow, setSprintScopeRow] = useState(null);
+  const [tcDetailRow, setTcDetailRow] = useState(null);
   const openSprintScope = useCallback((row) => setSprintScopeRow(row), []);
+  const openTcDetail = useCallback((row) => setTcDetailRow(row), []);
 
   useEffect(() => {
     setActiveSection((prev) => {
@@ -274,13 +306,22 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
       const withConflict = sectionTabs.find((tab) => tab.hasConflict || tab.conflictCount > 0);
       if (withConflict?.key) return withConflict.key;
       const withItems = sectionTabs.find((tab) => (bySection[tab.key]?.length || tab.count || 0) > 0);
-      return withItems?.key || sectionTabs[0]?.key || '';
+      if (withItems?.key) return withItems.key;
+      // Meta-only: prefer dependencies so COMPLETE_NO_EDGES / FAILED empty copy shows.
+      if (showEmptyMetaOnly && sectionTabs.some((tab) => tab.key === 'dependencies')) {
+        return 'dependencies';
+      }
+      return sectionTabs[0]?.key || '';
     });
-  }, [sectionTabs, bySection]);
+  }, [sectionTabs, bySection, showEmptyMetaOnly]);
 
-  if (!hasRows) return null;
+  if (!hasRows && !showEmptyMetaOnly) return null;
 
-  const activeRows = bySection[activeSection] || [];
+  const activeRowsRaw = bySection[activeSection] || [];
+  const activeRows =
+    activeSection === 'quality'
+      ? activeRowsRaw.filter((row) => row?.recordKind !== 'test_strategy')
+      : activeRowsRaw;
   const activeTab = sectionTabs.find((tab) => tab.key === activeSection);
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
   const activeHasIssue = sectionHasIssue(activeTab, bySection);
@@ -301,6 +342,23 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
         )}
       </p>
 
+      <WbsCheckpointBar
+        pack={pack}
+        organizationId={orgId}
+        packId={resolvedPackId}
+        t={t}
+        onRefresh={onRefresh}
+        onOpenGate2={onOpenGate2}
+        canConfirmWbs={canConfirmWbs}
+        canApprovePlan={canApprovePlan}
+      />
+
+      {staleHint ? (
+        <p className="mb-2 text-xs text-rose-700 dark:text-rose-300" data-testid="how-stale-badges">
+          {labelOf(t, 'aiHitl.wbsCheckpoint.stale', 'Artifact cần xem lại')}: {staleHint}
+        </p>
+      ) : null}
+
       <HowPlanSummaryChips pack={pack} t={t} />
 
       <HitlSectionTabList
@@ -316,10 +374,17 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
         )}
       />
 
-      {activeSection === 'quality' ? (
-        <QualityReviewPanel pack={pack} rows={activeRows} t={t} />
-      ) : !activeMissing && activeRows.length ? (
+      {!activeMissing && activeRows.length ? (
         <>
+          {activeSection === 'quality' ? (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {labelOf(
+                t,
+                'requirements.qualityReviewListHint',
+                'Chờ duyệt là trạng thái rà soát. Chưa chạy nghĩa là chưa thực thi. Ready không có nghĩa là đã kiểm thử thành công.'
+              )}
+            </p>
+          ) : null}
           {activeSection === 'dependencies' ? (
             <DependencyFlowPanel pack={pack} rows={activeRows} t={t} />
           ) : null}
@@ -329,10 +394,16 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
             t={t}
             headerTone={activeHasIssue ? 'warn' : 'ok'}
             onOpenSprintScope={openSprintScope}
+            onOpenTcDetail={openTcDetail}
           />
           <Gate2SprintScopePanel
             row={sprintScopeRow}
             onClose={() => setSprintScopeRow(null)}
+            t={t}
+          />
+          <Gate2TcDetailPanel
+            row={tcDetailRow}
+            onClose={() => setTcDetailRow(null)}
             t={t}
           />
         </>

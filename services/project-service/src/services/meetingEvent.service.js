@@ -496,7 +496,7 @@ async function completeEvent({ userId, projectId, eventId, body = {} }) {
 }
 
 /**
- * G2 — expand recurrence rule into MeetingEvent instances (future only).
+ * sourceManifest — expand recurrence rule into MeetingEvent instances (future only).
  */
 async function expandRecurrence({ userId, projectId, ruleId }) {
   await assertProject(projectId);

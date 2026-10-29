@@ -1,5 +1,5 @@
 /**
- * Build G7 text corpus from a run-scoped snapshot (+ G1 catalogs).
+ * Build RAG text corpus from a run-scoped snapshot (+ catalog catalogs).
  * RULE-09: only snapshot/run input — no live DB. Cap docs to avoid prompt bloat.
  *
  * Step 3 (HOW Gate2 plan): also emit srs_nfr / srs_uc / srs_ac / srs_technology
@@ -106,8 +106,8 @@ function buildCorpusFromSnapshot(snapshot, opts = {}) {
   const projected = snapshot.projected && typeof snapshot.projected === 'object'
     ? snapshot.projected
     : {};
-  const g1 = snapshot.g1Catalogs && typeof snapshot.g1Catalogs === 'object'
-    ? snapshot.g1Catalogs
+  const g1 = snapshot.knowledgeCatalogs && typeof snapshot.knowledgeCatalogs === 'object'
+    ? snapshot.knowledgeCatalogs
     : {};
   const metaBase = snapshotId ? { snapshotId } : {};
   const frOverride = Array.isArray(opts.frOverride) ? opts.frOverride : null;
@@ -166,7 +166,7 @@ function buildCorpusFromSnapshot(snapshot, opts = {}) {
     });
   }
 
-  // srs_canonical — quality-valid override (RULE-DL-06) or projected.srs (RULE-G7-02)
+  // srs_canonical — quality-valid override (RULE-DL-06) or projected.srs (RULE-RAG-02)
   let frs;
   if (frOverride) {
     frs = frOverride;
@@ -186,7 +186,7 @@ function buildCorpusFromSnapshot(snapshot, opts = {}) {
   const seenFr = new Set();
   let skippedMissingExternalId = 0;
   for (const fr of frs) {
-    // RULE-G7-01: sourceId MUST be externalId — normalized rows use `id`.
+    // RULE-RAG-01: sourceId MUST be externalId — normalized rows use `id`.
     const externalId = String(fr?.externalId || (frOverride ? fr?.id : '') || '').trim();
     if (!externalId) {
       skippedMissingExternalId += 1;

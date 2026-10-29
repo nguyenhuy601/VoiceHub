@@ -23,7 +23,7 @@ function buildToolContext({
   contextPackage = null,
   toolName = null,
 }) {
-  // WbsTool: only approved SRS (via pack) + container write-back — no G7 / employees / calendar.
+  // WbsTool: only approved SRS (via pack) + container write-back — no RAG / employees / calendar.
   if (toolName === 'WbsTool') {
     return {
       contextName: 'planning',

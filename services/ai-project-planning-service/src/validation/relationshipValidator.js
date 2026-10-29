@@ -1,5 +1,5 @@
 /**
- * G4 relationship candidates — existence + circular checks.
+ * FR relationship candidates — existence + circular checks.
  */
 
 function normId(id) {

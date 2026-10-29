@@ -35,6 +35,7 @@ async function importRequirementPackWorkItems(input) {
     const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
       applyAssignees: input.applyAssignees !== false,
       taskIds: input.taskIds || null,
+      useCases: pack?.useCases || [],
     });
     return importBlueprintWorkItemsFast({
       ...input,
@@ -54,6 +55,7 @@ async function importBlueprintFromPack(input) {
   const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
     applyAssignees: input.applyAssignees !== false,
     taskIds: input.taskIds || null,
+    useCases: input.pack?.useCases || [],
   });
   return importBlueprintWorkItemsFast({
     ...input,

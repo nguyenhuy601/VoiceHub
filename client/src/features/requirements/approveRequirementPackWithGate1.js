@@ -9,7 +9,7 @@ const GATE1_FORCEABLE_CODES = new Set([
   'GATE_A_MISSING',
   'CONFLICT_AMBIGUITY_BLOCKING',
   'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED',
-  'G4_UNDERSTANDING_MISSING',
+  'REQUIREMENT_PROPOSAL_MISSING',
 ]);
 
 function readErrorCode(error) {
@@ -27,9 +27,9 @@ function forcePromptMessage(code, t) {
       t('requirements.gate1ForceConflictPrompt')
     );
   }
-  if (code === 'G4_UNDERSTANDING_MISSING') {
+  if (code === 'REQUIREMENT_PROPOSAL_MISSING') {
     return (
-      t('requirements.gate1ForceG4Prompt')
+      t('requirements.gate1ForceRequirementPrompt')
     );
   }
   return (
@@ -41,8 +41,8 @@ function forcePromptTitle(code, t) {
   if (code === 'CONFLICT_AMBIGUITY_BLOCKING' || code === 'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED') {
     return t('requirements.gate1ForceConflictTitle');
   }
-  if (code === 'G4_UNDERSTANDING_MISSING') {
-    return t('requirements.gate1ForceG4Title');
+  if (code === 'REQUIREMENT_PROPOSAL_MISSING') {
+    return t('requirements.gate1ForceRequirementTitle');
   }
   return t('requirements.gate1ForceReasonTitle');
 }
@@ -173,9 +173,9 @@ export function formatGate1ApproveError(error, { t, fallback }) {
       resolveApiErrorMessage(error, { t, fallback });
     return preview ? `${base} (${preview})` : base;
   }
-  if (code === 'G4_UNDERSTANDING_MISSING') {
+  if (code === 'REQUIREMENT_PROPOSAL_MISSING') {
     return (
-      t('requirements.gate1G4Missing') ||
+      t('requirements.gate1RequirementMissing') ||
       resolveApiErrorMessage(error, { t, fallback })
     );
   }

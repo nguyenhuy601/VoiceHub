@@ -3,11 +3,11 @@
  */
 
 /**
- * @param {{ frUnderstanding?: object, g4Understanding?: object, validation?: object }} input
+ * @param {{ frUnderstanding?: object, validation?: object }} input
  * @returns {{ ok: boolean, errors: string[], warnings: string[], accepted: object, rejected: object[] }}
  */
 function validateFunctionalRequirements(input = {}) {
-  const raw = input.frUnderstanding || input.g4Understanding;
+  const raw = input.frUnderstanding;
   const g4 = raw && typeof raw === 'object' ? raw : {};
   const validation = input.validation && typeof input.validation === 'object'
     ? input.validation

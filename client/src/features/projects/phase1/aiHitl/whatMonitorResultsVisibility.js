@@ -7,14 +7,10 @@ import { attachConflictAmbiguityToGate1Bundle } from '../gate1/resolveConflictAm
 
 export function buildWhatMonitorResultsBundle(pack) {
   if (!pack) return { items: [], sections: [], bySection: {} };
-  const g4 =
-    pack?.aiAnalysis?.analyses?.frUnderstanding ||
-    pack?.aiAnalysis?.analyses?.g4Understanding;
   const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
   return attachConflictAmbiguityToGate1Bundle(
-    buildGate1ProposalItems({ pack, g4, proposal }),
-    pack,
-    g4
+    buildGate1ProposalItems({ pack, proposal }),
+    pack
   );
 }
 

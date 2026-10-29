@@ -533,13 +533,13 @@ async function processRunAsync(runId) {
   const { executionLeaseOwner } = claim;
   activeRunIds.add(String(runId));
 
-  // G1 Step 2 — attach catalogs on AI service before tools (RULE-11)
+  // catalog Step 2 — attach catalogs on AI service before tools (RULE-11)
   try {
-    const { enrichRunInputWithG1Catalogs } = require('../knowledge/enrichRunInputWithG1Catalogs');
-    const enriched = await enrichRunInputWithG1Catalogs(run);
+    const { enrichRunInputWithCatalogs } = require('../knowledge/enrichRunInputWithCatalogs');
+    const enriched = await enrichRunInputWithCatalogs(run);
     run = enriched.run;
   } catch (g1Err) {
-    console.warn('[planning] attachG1Catalogs', g1Err?.message || g1Err);
+    console.warn('[planning] attachKnowledgeCatalogs', g1Err?.message || g1Err);
   }
 
   if (run.job === 'phase_how' || run.job === 'phase_what') {
@@ -553,17 +553,17 @@ async function processRunAsync(runId) {
       const hydrated = await hydrateRunInputFromSnapshot(run);
       let runtimeSnapshot = hydrated.snapshot || {};
       const runtimePack = hydrated.pack || {};
-      // Semantic Contract: ensure canonicalRaw visible on snapshot for G4/section input
+      // Semantic Contract: ensure canonicalRaw visible on snapshot for frUnderstanding/section input
       if (
         !runtimeSnapshot.canonicalRaw &&
         runtimePack.aiAnalysis?.canonicalRaw
       ) {
         runtimeSnapshot.canonicalRaw = runtimePack.aiAnalysis.canonicalRaw;
       }
-      // G1 catalogs after S2S hydrate (do not invent snapshot before hydrate)
+      // catalog catalogs after S2S hydrate (do not invent snapshot before hydrate)
       try {
-        const { attachG1Catalogs } = require('../knowledge/attachG1Catalogs');
-        const g1 = attachG1Catalogs({
+        const { attachKnowledgeCatalogs } = require('../knowledge/attachKnowledgeCatalogs');
+        const g1 = attachKnowledgeCatalogs({
           ...runtimeSnapshot,
           pack: runtimePack,
           staffingPlan: runtimePack.staffingPlan || runtimeSnapshot.staffingPlan,
@@ -572,7 +572,7 @@ async function processRunAsync(runId) {
         });
         if (g1?.snapshot) runtimeSnapshot = g1.snapshot;
       } catch (g1After) {
-        console.warn('[planning] attachG1Catalogs after hydrate', g1After?.message || g1After);
+        console.warn('[planning] attachKnowledgeCatalogs after hydrate', g1After?.message || g1After);
       }
       const toolData = hydrateToolDataFromSnapshot(
         run.input?.toolData,
@@ -625,7 +625,6 @@ async function processRunAsync(runId) {
       const deriveLocale = normalizeDeriveLocale(
         run.input?.locale ||
           run.input?.frOpts?.locale ||
-          run.input?.g4Opts?.locale ||
           process.env.PHASE1_DERIVE_LOCALE ||
           'vi'
       );
@@ -640,9 +639,9 @@ async function processRunAsync(runId) {
       packWithLocale.aiAnalysis.deriveLocale = deriveLocale;
 
       // RULE-LG-CP-01: LG checkpointer is phase resume SoT.
-      // G15 saveCheckpoint mid-run only when AGENT_CORE_G15_TELEMETRY=1 (projection).
-      const g15Telemetry =
-        String(process.env.AGENT_CORE_G15_TELEMETRY || '').trim() === '1';
+      // saveCheckpoint mid-run only when AGENT_CHECKPOINT_TELEMETRY=1 (projection).
+      const checkpointTelemetry =
+        String(process.env.AGENT_CHECKPOINT_TELEMETRY || '').trim() === '1';
       const commonPhaseOpts = {
         container: cpState?.container || run.input?.container,
         pack: packWithLocale,
@@ -650,7 +649,7 @@ async function processRunAsync(runId) {
         snapshotId: run.snapshotId,
         runId,
         onProgress: (evt) => reportPipelineProgress(runId, evt),
-        onCheckpoint: g15Telemetry
+        onCheckpoint: checkpointTelemetry
           ? (agentState) =>
               saveCheckpoint(runId, {
                 ...agentState,
@@ -674,20 +673,16 @@ async function processRunAsync(runId) {
           generationId,
           humanFeedback,
           frOpts: {
-            ...whatG4Opts(run, cpState),
-            ...(run.input?.g4Opts || {}),
+            ...whatFrOpts(run, cpState),
             ...(run.input?.frOpts || {}),
             locale: deriveLocale,
             loop1Reenter: Boolean(humanFeedback?.kind === 'requirement_feedback'),
             priorPartial:
               run.input?.frOpts?.priorPartial ||
-              run.input?.g4Opts?.priorPartial ||
               cpState?.understandingPartial ||
-              cpState?.g4Partial ||
               null,
             reuseContextPackage:
               run.input?.frOpts?.reuseContextPackage ||
-              run.input?.g4Opts?.reuseContextPackage ||
               cpState?.contextPackage ||
               null,
           },
@@ -1036,13 +1031,12 @@ async function cancelRun(req, res) {
   }
 }
 
-function whatG4Opts(run, cpState) {
-  const legacy =
-    run.input?.g4Opts && typeof run.input.g4Opts === 'object' ? run.input.g4Opts : {};
+function whatFrOpts(run, cpState) {
+  void cpState;
   const modern =
     run.input?.frOpts && typeof run.input.frOpts === 'object' ? run.input.frOpts : {};
-  if (run.job !== 'phase_what') return { ...legacy, ...modern };
-  const inputOpts = { ...legacy, ...modern };
+  if (run.job !== 'phase_what') return { ...modern };
+  const inputOpts = { ...modern };
   const isLoop1 = Boolean(
     inputOpts.loop1Reenter ||
       run.input?.humanFeedback ||
@@ -1050,13 +1044,10 @@ function whatG4Opts(run, cpState) {
   );
   // RULE-R01/R07: never pause at Data Gate.
   // Loop1: keep durable priorPartial/reuse from pack seed (PLAN B).
-  // Non-Loop1: ignore legacy g4Partial resume (data_gate removed).
   return {
     ...inputOpts,
     pauseAtDataGate: false,
-    ...(isLoop1
-      ? {}
-      : { priorPartial: null }),
+    ...(isLoop1 ? {} : { priorPartial: null }),
   };
 }
 
@@ -1168,7 +1159,7 @@ async function pauseRunForDataGate(run, phaseOut) {
     organizationId: run.organizationId,
     approvedSrsVersion: run.approvedSrsVersion,
     snapshotId: run.snapshotId,
-    g4Partial: phaseOut.partial,
+    understandingPartial: phaseOut.partial,
     gatePreview: phaseOut.gatePreview || null,
     dataGateDecision: null,
     gate: 'data_review',
@@ -1215,7 +1206,7 @@ async function resumeRun(req, res) {
       if (!isInRunHitlKind(kind)) {
         return res.status(400).json({
           success: false,
-          message: 'kind must be clarify or edit_draft',
+          message: 'kind must be clarify, edit_draft, or wbs_confirm',
           errorCode: 'IN_RUN_HITL_KIND_INVALID',
         });
       }
@@ -1285,7 +1276,7 @@ async function resumeRun(req, res) {
       return res.json({ success: true, data: toPublicRun(updated), legacyDataGateCleanup: true });
     }
 
-    // callback_pending: deliver only — G15 key not required
+    // callback_pending: deliver only — checkpoint key not required
     await assertCheckpointForResume(req.params.runId, {
       hasCallbackPayload: Boolean(existing.callbackPayload),
     });

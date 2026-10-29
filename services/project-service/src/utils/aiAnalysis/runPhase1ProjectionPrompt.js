@@ -1,6 +1,6 @@
 /**
  * Phase 1 Stage 2 projection — heuristic only in project-service (RULE-11).
- * LLM projection runs on ai-project-planning-service via phase_what / G4.
+ * LLM projection runs on ai-project-planning-service via phase_what / frUnderstanding.
  */
 
 const {
@@ -353,7 +353,7 @@ async function runPhase1ProjectionPrompt({
     };
   }
 
-  // RULE-11: LLM projection lives on ai-project-planning-service (phase_what / G4).
+  // RULE-11: LLM projection lives on ai-project-planning-service (phase_what / frUnderstanding).
   const err = new Error(
     'In-process Phase1 LLM projection is forbidden — use remote phase_what (APS)'
   );

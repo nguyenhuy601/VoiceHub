@@ -1,5 +1,5 @@
 /**
- * PLAN B — Durable Loop1 reuse artifacts (survive parent G15 TERMINAL delete).
+ * PLAN B — Durable Loop1 reuse artifacts (survive parent checkpoint TERMINAL delete).
  * Stored on pack.aiAnalysis.phaseRuns.phase_what.loop1Reuse (project-service).
  * Not AgentState / parent checkpoint.
  */
@@ -21,7 +21,7 @@ function slimFr(fr) {
 }
 
 /**
- * Slim understanding prefix enough for hasResumePartial + G4 skip prefix.
+ * Slim understanding prefix enough for hasResumePartial + FR skip prefix.
  * @param {object|null|undefined} priorPartial
  */
 function slimPriorPartial(priorPartial) {

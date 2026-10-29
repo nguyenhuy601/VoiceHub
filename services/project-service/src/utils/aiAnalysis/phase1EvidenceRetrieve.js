@@ -10,13 +10,13 @@ const {
 const DEFAULT_TOP_K = 8;
 
 /**
- * Local evidence scorer. Vector retrieve for Phase WHAT/HOW is G7_RAG_MODE in
+ * Local evidence scorer. Vector retrieve for Phase WHAT/HOW is RAG_MODE in
  * ai-project-planning-service. This helper only honors off vs keyword scoring.
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {'stub'|'off'}
  */
 function getPhase1RagMode(env = process.env) {
-  const raw = String(env.G7_RAG_MODE ?? env.PHASE1_RAG ?? 'stub').trim().toLowerCase();
+  const raw = String(env.RAG_MODE ?? env.PHASE1_RAG ?? 'stub').trim().toLowerCase();
   if (raw === '0' || raw === 'false' || raw === 'off') return 'off';
   return 'stub';
 }

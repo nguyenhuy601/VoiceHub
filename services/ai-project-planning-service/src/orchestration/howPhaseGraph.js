@@ -290,8 +290,8 @@ function buildHowPhaseGraph(hooks = {}) {
     let ingestWarning = null;
     try {
       const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
-      const mode = getG7RagMode();
+      const { getRagMode } = require('../retrieval/ragPipelineSchemas');
+      const mode = getRagMode();
       if ((mode === 'qdrant' || mode === 'hybrid') && state.snapshotId) {
         await ingestSnapshotToQdrant({
           snapshot: state.snapshot,
@@ -300,8 +300,8 @@ function buildHowPhaseGraph(hooks = {}) {
         });
       }
     } catch (ingestErr) {
-      const { getG7RagMode, requiresQdrant } = require('../retrieval/g7PipelineSchemas');
-      const mode = getG7RagMode();
+      const { getRagMode, requiresQdrant } = require('../retrieval/ragPipelineSchemas');
+      const mode = getRagMode();
       if (requiresQdrant(mode)) {
         console.error('[g7_ingest] fail-closed', ingestErr?.message || ingestErr);
         throw ingestErr;
@@ -358,12 +358,10 @@ function buildHowPhaseGraph(hooks = {}) {
       const {
         detectParentResultMiss,
         executionToLegacyToolResult,
+        reduceToolExecutions,
       } = require('./toolExecutionContract');
       const merged = {
-        toolExecutions: [
-          ...(Array.isArray(state.toolExecutions) ? state.toolExecutions : []),
-          ...(Array.isArray(out?.toolExecutions) ? out.toolExecutions : []),
-        ],
+        toolExecutions: reduceToolExecutions(state.toolExecutions, out?.toolExecutions),
         toolResults: [
           ...(Array.isArray(state.toolResults) ? state.toolResults : []),
           ...(Array.isArray(out?.toolResults) ? out.toolResults : []),
@@ -373,7 +371,7 @@ function buildHowPhaseGraph(hooks = {}) {
       if (!miss) return out || {};
       return {
         ...(out || {}),
-        toolExecutions: [miss],
+        toolExecutions: reduceToolExecutions(out?.toolExecutions, [miss]),
         toolResults: [executionToLegacyToolResult(miss)],
         history: [`adapter_miss:${toolName}`],
       };
@@ -381,6 +379,97 @@ function buildHowPhaseGraph(hooks = {}) {
   }
 
   graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'how', onProgress }));
+
+  /**
+   * Staged WBS HITL: stamp revision (always) + interrupt/pin baseline when checkpoint enabled.
+   * Side effects before interrupt are idempotent (revision contentHash / pin requestId).
+   */
+  graph.addNode('wbsCheckpoint', async (state) => {
+    onProgress?.({ node: 'wbsCheckpoint', phase: 'how' });
+    const {
+      stampWbsRevisionAfterTool,
+      needsWbsConfirm,
+      applyWbsConfirmResume,
+      getCurrentRevisionId,
+    } = require('../planningRevision');
+    const { awaitInRunHitl, normalizeInRunKind } = require('./hitlInterrupt');
+
+    let next = { ...state };
+    const hrEnvelope = state.humanResume;
+    if (hrEnvelope && typeof hrEnvelope === 'object') {
+      const kind = normalizeInRunKind(hrEnvelope.kind || hrEnvelope.resume?.kind);
+      const resumeBody =
+        hrEnvelope.resume && typeof hrEnvelope.resume === 'object'
+          ? { ...hrEnvelope.resume, kind }
+          : { ...hrEnvelope, kind };
+      if (kind === 'wbs_confirm') {
+        const applied = applyWbsConfirmResume(next, {
+          ...resumeBody,
+          kind: 'wbs_confirm',
+          action: resumeBody.action || resumeBody.decision || 'confirm',
+        });
+        if (applied.applied) {
+          next = applied.state;
+        }
+      }
+    }
+
+    const hasLeaves =
+      Array.isArray(next.container?.planning?.tasks) &&
+      next.container.planning.tasks.some(
+        (t) => t && (t.level === 'task' || t.type === 'task')
+      );
+    if (hasLeaves || getCurrentRevisionId(next.container, 'wbs')) {
+      const stamped = stampWbsRevisionAfterTool(next.container || {}, {
+        runId: next.runId || null,
+        toolName: 'WbsTool',
+      });
+      next = {
+        ...next,
+        container: stamped.container,
+        history: stamped.created
+          ? [`wbs_revision:${stamped.revision.revisionId}`]
+          : ['wbs_revision:idempotent'],
+      };
+    }
+
+    if (needsWbsConfirm(next)) {
+      const wbsRev = getCurrentRevisionId(next.container, 'wbs');
+      const hitl = awaitInRunHitl({
+        kind: 'wbs_confirm',
+        runId: next.runId,
+        snapshotId: next.snapshotId,
+        summary: {
+          wbsRevisionId: wbsRev,
+          leafCount: Array.isArray(next.container?.planning?.tasks)
+            ? next.container.planning.tasks.filter((t) => t?.level === 'task').length
+            : 0,
+          note: 'Confirm WBS baseline before Dependency/Risk/Quality/Schedule',
+        },
+        prompt: 'Xác nhận WBS để chạy tiếp các phần phụ thuộc',
+      });
+      if (hitl && hitl.skipped) {
+        return {
+          container: next.container,
+          humanResume: null,
+          history: [`wbsCheckpoint:waiting_soft:${hitl.reason || 'skipped'}`],
+          hitl: {
+            type: 'in_run_hitl',
+            kind: 'wbs_confirm',
+            waiting: true,
+            wbsRevisionId: wbsRev,
+          },
+        };
+      }
+    }
+
+    return {
+      container: next.container,
+      humanResume: null,
+      history: ['wbsCheckpoint:ok'],
+      hitl: next.hitl || null,
+    };
+  });
 
   graph.addNode('finalizePlan', async (state) => {
     onProgress?.({ node: 'finalizePlan', phase: 'how' });
@@ -492,7 +581,8 @@ function buildHowPhaseGraph(hooks = {}) {
   for (const toolName of HOW_SEC_TOOL_NAMES) {
     graph.addEdge(toolName, 'selectTools');
   }
-  graph.addEdge(PLAIN_TOOLS_NODE, 'selectTools');
+  graph.addEdge(PLAIN_TOOLS_NODE, 'wbsCheckpoint');
+  graph.addEdge('wbsCheckpoint', 'selectTools');
   graph.addEdge('finalizePlan', 'emitReady');
   graph.addEdge('assemble', 'scoreCompleteness');
   graph.addConditionalEdges(

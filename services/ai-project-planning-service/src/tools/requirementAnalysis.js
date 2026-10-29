@@ -42,8 +42,8 @@ function listFrs(snapshot = {}) {
   // Semantic Contract P1: Customer Raw canonicalRaw.functional_behavior is FR intake SoT
   if (snapshot?.canonicalRaw && typeof snapshot.canonicalRaw === 'object') {
     try {
-      const { resolveFrListForG4 } = require('../semantic/sectionInputContract');
-      const fromCanon = resolveFrListForG4(snapshot, null);
+      const { resolveFrListForUnderstanding } = require('../semantic/sectionInputContract');
+      const fromCanon = resolveFrListForUnderstanding(snapshot, null);
       if (Array.isArray(fromCanon) && fromCanon.length) return fromCanon;
     } catch {
       /* dual-read pack/projected */
@@ -59,7 +59,7 @@ function listFrs(snapshot = {}) {
     }
     return srs;
   }
-  // projected may exist for G1 skillCatalog only — do not treat that as FR SoT
+  // projected may exist for catalog skillCatalog only — do not treat that as FR SoT
   if (top) return top;
   if (Array.isArray(snapshot.frList)) return snapshot.frList;
   if (Array.isArray(snapshot.requirements)) return snapshot.requirements;

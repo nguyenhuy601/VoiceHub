@@ -10,7 +10,7 @@ description: >-
 
 **Product name:** AI Project — Two-Phase Human-in-the-Loop Planning Architecture.
 
-**Runtime ownership (RULE-11):** LLM / orchestrator / tools compute / run / checkpoint sống trong **`ai-project-planning-service`** (+ optional worker). **`project-service`** = pack/project domain, Gate HTTP facade, **G20 materialize**, start-run **202** qua S2S — không chạy LLM in-process.
+**Runtime ownership (RULE-11):** LLM / orchestrator / tools compute / run / checkpoint sống trong **`ai-project-planning-service`** (+ optional worker). **`project-service`** = pack/project domain, Gate HTTP facade, **plan materialize**, start-run **202** qua S2S — không chạy LLM in-process.
 
 Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` / `summary-service` — không còn trong repo).
 
@@ -37,7 +37,7 @@ Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` 
 5. JEV control layer (deferred, provider-agnostic): [`docs/ai-project/jev-control-layer.md`](../../docs/ai-project/jev-control-layer.md) — sau 3 track + Agent Core; **không** pin vendor.
 6. Then `ecosystem-primer` if writing LangChain/LangGraph/Deep Agents code.
 7. HITL → `langgraph-human-in-the-loop`.
-8. RAG/Qdrant → `langchain-rag` only when G7 in-scope.
+8. RAG/Qdrant → `langchain-rag` only when rag in-scope.
 9. Deep Agents / LangGraph **F2 Agent Core** — WHAT và HOW chỉ điều phối bằng `whatPhaseGraph` / `howPhaseGraph`. Không còn vòng JS phase. Full HITL interrupt / JEV vẫn sau gate riêng.
 
 ## Mode → pattern map

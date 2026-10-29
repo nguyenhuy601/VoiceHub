@@ -76,6 +76,9 @@ function createToolExecution(partial = {}) {
   }
   if (partial.jobId != null) row.jobId = String(partial.jobId);
   if (partial.reason != null) row.reason = String(partial.reason);
+  if (partial.inputRevisionId != null) {
+    row.inputRevisionId = String(partial.inputRevisionId);
+  }
   return row;
 }
 

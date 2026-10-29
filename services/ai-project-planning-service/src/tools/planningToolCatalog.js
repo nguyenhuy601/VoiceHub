@@ -144,7 +144,7 @@ const PLANNING_TOOLS = Object.freeze({
   [WHAT_FR_TOOL]: {
     toolName: WHAT_FR_TOOL,
     version: '1.0.0',
-    description: 'WHAT FR: CR propose, G4 semantic, and decompose',
+    description: 'WHAT FR: CR propose, FR semantic, and decompose',
     allowedContexts: ['understanding', 'planning'],
     requires: [],
     timeout: 300_000,

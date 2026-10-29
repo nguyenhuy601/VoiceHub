@@ -93,11 +93,10 @@ function entity(type, id, content, row, field) {
 }
 
 function understandingOf(pack, understanding) {
+  // Pack analyses.frUnderstanding / g4Understanding retired — only explicit arg or requirementUnderstanding
   return (
     understanding ||
     pack?.aiAnalysis?.requirementUnderstanding ||
-    pack?.aiAnalysis?.frUnderstanding ||
-    pack?.aiAnalysis?.g4Understanding ||
     null
   );
 }

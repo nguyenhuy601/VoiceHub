@@ -18,6 +18,7 @@ function field() {
 
 /** Shared Annotation slice for HOW/WHAT sec tool subgraphs (Pattern B). */
 function buildSecSharedAnnotations() {
+  const { reduceToolExecutions } = require('./toolExecutionContract');
   return {
     pack: field(),
     container: Annotation({
@@ -32,6 +33,12 @@ function buildSecSharedAnnotations() {
     env: field(),
     contextPackage: field(),
     runId: field(),
+    // Must match SEC_SHARED_KEYS + parent howPhaseGraph — without this, applyShared
+    // toolExecutions are dropped → ADAPTER_RESULT_LOST → RiskTool retry loop.
+    toolExecutions: Annotation({
+      reducer: (left, right) => reduceToolExecutions(left, right),
+      default: () => [],
+    }),
     toolResults: Annotation({
       reducer: appendList,
       default: () => [],
@@ -433,218 +440,106 @@ function enhanceSecGraphWithApplyShared(buildFn, toolName) {
   return buildSecToolSubgraphFromInner(toolName, () => inner);
 }
 
-const _whatFrCache = new Map();
+const _whatSectionCache = new Map();
 
 /**
- * Pattern B WHAT FR node — prepare (CR) → nested FR StateGraph → accept → applyShared.
- * Registered on whatPhaseGraph as `runFrUnderstanding` (Send when agent picks WhatFrTool).
+ * WhatFrTool Pattern B — semantic FR section (frSectionHooks). No FR / runFrUnderstanding.
  * @param {{ onProgress?: Function }} [hooks]
  */
 function buildWhatFrToolSubgraph(hooks = {}) {
-  const cacheKey = 'what-fr';
-  if (_whatFrCache.has(cacheKey) && !hooks.onProgress && !hooks.bypassCache) {
-    return _whatFrCache.get(cacheKey);
-  }
-
-  const { WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
-  const { buildFrUnderstandingGraph } = require('../engines/frUnderstanding');
-  const {
-    prepareFrSnapshotForPipeline,
-    finalizeFrSemanticFromPipeline,
-  } = require('../semantic/runFrSemanticTask');
-  const { applyFrToolToState, sparseContainerPatch } = require('./whatPhaseToolNodes');
-
-  const frInner = buildFrUnderstandingGraph({ onProgress: hooks.onProgress || null });
-
-  const State = Annotation.Root({
-    ...buildSecSharedAnnotations(),
-    frUnderstanding: field(),
-    frOpts: field(),
-    understandingPartial: field(),
-    corpusContentHash: field(),
-    srsProposal: field(),
-    proposalFragment: field(),
-    conflictAmbiguityGate: field(),
-    requirementIntegrityGate: field(),
-    engineResultsById: field(),
-    semanticStatuses: field(),
-    // FR pipeline inputs (shared with nested graph)
-    priorPartial: field(),
-    forceHeuristic: field(),
-    skipLlm: field(),
-    reuseContextPackage: field(),
-    priorCorpusHash: field(),
-    generateJsonFn: field(),
-    // private bridge
-    frSkipPipeline: field(),
-    frFailClosed: field(),
-    proposedByIdEntries: field(),
-    frFromCrMeta: field(),
-    projected: field(),
-    validation: field(),
-    selection: field(),
-    blocked: field(),
-    errorCode: field(),
-    containerPatch: field(),
-  });
-
-  const graph = new StateGraph(State);
-
-  graph.addNode('prepareFr', async (state) => {
-    const env = state.env || process.env;
-    const frOpts = {
-      ...(state.frOpts || {}),
-      pauseAtDataGate: false,
-      priorCorpusHash: state.corpusContentHash || state.frOpts?.priorCorpusHash || null,
-      snapshotId: state.snapshotId,
-      priorPartial:
-        state.frOpts?.priorPartial ||
-        state.understandingPartial ||
-        null,
-    };
-    const prepared = await prepareFrSnapshotForPipeline({
-      snapshot: state.snapshot,
-      pack: state.pack || {},
-      frOpts,
-      env,
-      generateJsonFn: state.generateJsonFn || state.frOpts?.generateJsonFn || null,
-    });
-
-    if (prepared.failClosed) {
-      return {
-        frSkipPipeline: true,
-        frFailClosed: prepared.failClosed,
-        proposedByIdEntries: [],
-        frFromCrMeta: prepared.frFromCrMeta,
-      };
-    }
-
-    const proposedEntries = [...prepared.proposedById.entries()];
-    return {
-      frSkipPipeline: false,
-      frFailClosed: null,
-      snapshot: prepared.snapshot,
-      pack: prepared.pack,
-      priorPartial: prepared.frOpts.priorPartial || null,
-      priorCorpusHash: prepared.frOpts.priorCorpusHash || state.corpusContentHash || null,
-      forceHeuristic: Boolean(prepared.frOpts.forceHeuristic),
-      skipLlm: Boolean(prepared.frOpts.skipLlm),
-      reuseContextPackage: prepared.frOpts.reuseContextPackage || null,
-      snapshotId: prepared.frOpts.snapshotId || state.snapshotId,
-      generateJsonFn: state.generateJsonFn || prepared.frOpts.generateJsonFn || null,
-      env,
-      proposedByIdEntries: proposedEntries,
-      frFromCrMeta: prepared.frFromCrMeta,
-    };
-  });
-
-  // Pattern B: nested compiled FR graph (prefix→semantic→conflict→evidence→synthesis)
-  graph.addNode('frPipeline', frInner);
-
-  graph.addNode('acceptFr', async (state) => {
-    let frSem;
-    if (state.frSkipPipeline && state.frFailClosed) {
-      frSem = state.frFailClosed;
-    } else {
-      const proposedById = new Map(
-        Array.isArray(state.proposedByIdEntries) ? state.proposedByIdEntries : []
-      );
-      const g4Out = {
-        frUnderstanding: state.frUnderstanding,
-        projected: state.projected,
-        validation: state.validation,
-        selection: state.selection,
-        contextPackage: state.contextPackage,
-        corpusContentHash: state.corpusContentHash,
-        blocked: state.blocked,
-        errorCode: state.errorCode,
-      };
-      frSem = await finalizeFrSemanticFromPipeline(
-        g4Out,
-        {
-          pack: state.pack || {},
-          env: state.env || process.env,
-          runId: state.runId || null,
-          generateJsonFn: state.generateJsonFn || null,
-        },
-        { proposedById, frFromCrMeta: state.frFromCrMeta }
-      );
-      frSem = {
-        ...frSem,
-        status: frSem.status || 'run',
-        paused: Boolean(frSem.paused),
-        blocked: Boolean(frSem.blocked || state.blocked),
-      };
-    }
-
-    const applied = applyFrToolToState(state, frSem);
-    const containerBase =
-      state.container && typeof state.container === 'object' ? state.container : {};
-    let containerPatch = null;
-    if (applied.srsProposal) {
-      containerPatch = sparseContainerPatch(containerBase, {
-        analyses: {
-          ...(containerBase.analyses || {}),
-          srsProposal: applied.srsProposal,
-        },
-      });
-    }
-
-    return {
-      ...applied,
-      containerPatch,
-    };
-  });
-
-  graph.addNode('applyShared', async (state) => {
-    const update = {
-      toolResults: [{ toolName: WHAT_FR_TOOL, ok: true, engineId: 'fr' }],
-      history: [`execute:${WHAT_FR_TOOL}`],
-      messages: [
-        {
-          role: 'tool',
-          name: WHAT_FR_TOOL,
-          content: JSON.stringify({ ok: true, path: 'frUnderstanding_subgraph' }),
-        },
-      ],
-      currentToolName: WHAT_FR_TOOL,
-    };
-    if (state.containerPatch && typeof state.containerPatch === 'object') {
-      update.container = state.containerPatch;
-    }
-    return update;
-  });
-
-  graph.addEdge(START, 'prepareFr');
-  graph.addConditionalEdges(
-    'prepareFr',
-    (state) => (state.frSkipPipeline ? 'acceptFr' : 'frPipeline'),
-    { acceptFr: 'acceptFr', frPipeline: 'frPipeline' }
-  );
-  graph.addEdge('frPipeline', 'acceptFr');
-  graph.addEdge('acceptFr', 'applyShared');
-  graph.addEdge('applyShared', END);
-
-  const compiled = graph.compile();
-  if (!hooks.onProgress && !hooks.bypassCache) {
-    _whatFrCache.set(cacheKey, compiled);
-  }
-  return compiled;
+  return buildWhatSectionToolSubgraph('fr', hooks);
 }
 
-const _whatSectionCache = new Map();
-
-function buildWhatSectionToolSubgraph(engineId) {
+function buildWhatSectionToolSubgraph(engineId, hooks = {}) {
   const cacheKey = String(engineId || '');
-  if (_whatSectionCache.has(cacheKey)) return _whatSectionCache.get(cacheKey);
+  if (_whatSectionCache.has(cacheKey) && !hooks.onProgress && !hooks.bypassCache) {
+    return _whatSectionCache.get(cacheKey);
+  }
+
+  const { SECTION_LABEL } = require('../semantic/sectionDeriveRegistry');
+  const toolName = `What${SECTION_LABEL[engineId] || String(engineId).toUpperCase()}Tool`;
+
+  if (String(engineId) === 'fr') {
+    const { runFrSectionDerive } = require('../semantic/frSectionHooks');
+    const { applyFrToolToState, sparseContainerPatch } = require('./whatPhaseToolNodes');
+    const { WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
+
+    const State = Annotation.Root({
+      ...buildSecSharedAnnotations(),
+      frUnderstanding: field(),
+      frOpts: field(),
+      srsProposal: field(),
+      proposalFragment: field(),
+      conflictAmbiguityGate: field(),
+      requirementIntegrityGate: field(),
+      result: field(),
+      containerPatch: field(),
+      engineId: field(),
+      engineResultsById: field(),
+      semanticStatuses: field(),
+      generateJsonFn: field(),
+    });
+
+    const graph = new StateGraph(State);
+    graph.addNode('runFr', async (state) => {
+      if (typeof hooks.onProgress === 'function') {
+        await hooks.onProgress({ step: 1, substep: 'fr_semantic_section', phase: 'what' });
+      }
+      const frSem = await runFrSectionDerive({
+        snapshot: state.snapshot,
+        pack: state.pack || {},
+        frOpts: state.frOpts || {},
+        env: state.env || process.env,
+        generateJsonFn: state.generateJsonFn || state.frOpts?.generateJsonFn || null,
+        snapshotId: state.snapshotId,
+        runId: state.runId,
+      });
+      const applied = applyFrToolToState(state, frSem);
+      const containerBase =
+        state.container && typeof state.container === 'object' ? state.container : {};
+      let containerPatch = null;
+      if (applied.srsProposal) {
+        containerPatch = sparseContainerPatch(containerBase, {
+          analyses: {
+            ...(containerBase.analyses || {}),
+            srsProposal: applied.srsProposal,
+          },
+        });
+      }
+      return {
+        ...applied,
+        engineId: 'fr',
+        result: {
+          ok: true,
+          status: frSem?.status || 'run',
+          items: frSem?.items || [],
+          proposalFragment: frSem?.proposalFragment || null,
+          meta: {
+            ...(frSem?.meta || {}),
+            fromTool: WHAT_FR_TOOL,
+            pipeline: 'semantic_fr_section_v1',
+          },
+        },
+        containerPatch,
+      };
+    });
+    graph.addNode('applyShared', makeApplySharedNode(WHAT_FR_TOOL));
+    graph.addEdge(START, 'runFr');
+    graph.addEdge('runFr', 'applyShared');
+    graph.addEdge('applyShared', END);
+
+    const compiled = graph.compile();
+    if (!hooks.onProgress && !hooks.bypassCache) {
+      _whatSectionCache.set(cacheKey, compiled);
+    }
+    return compiled;
+  }
 
   const {
     prepareSectionDerive,
     proposeSectionJson,
     acceptSectionDerive,
   } = require('../semantic/runRawSectionDerive');
-  const { SECTION_LABEL } = require('../semantic/sectionDeriveRegistry');
-  const toolName = `What${SECTION_LABEL[engineId] || String(engineId).toUpperCase()}Tool`;
 
   const State = Annotation.Root({
     ...buildSecSharedAnnotations(),

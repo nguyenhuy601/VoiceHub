@@ -69,7 +69,7 @@ function buildRequirementToolsAnalysis({ pack, snapshot, aiAnalysis, thresholds 
   const registry = getDefaultRegistry();
   const signals = collectGateAAdvisorySignals({ pack, aiAnalysis, snapshot });
 
-  // Similarity pairs feed duplicate count (exact/G4 + title) without auto-merge.
+  // Similarity pairs feed duplicate count (exact/FR + title) without auto-merge.
   let similarityPairs = [];
   try {
     const sim = registry.execute(

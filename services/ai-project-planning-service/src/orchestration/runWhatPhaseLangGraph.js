@@ -25,7 +25,6 @@ async function runWhatPhaseLangGraph({
   onProgress = null,
   onCheckpoint = null,
   frOpts = {},
-  g4Opts = null,
   budget: budgetOverride = null,
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
@@ -38,7 +37,6 @@ async function runWhatPhaseLangGraph({
   decideToolCalls = null,
 } = {}) {
   const resolvedFrOpts = {
-    ...(g4Opts && typeof g4Opts === 'object' ? g4Opts : {}),
     ...(frOpts && typeof frOpts === 'object' ? frOpts : {}),
   };
   const startedAt = Date.now();

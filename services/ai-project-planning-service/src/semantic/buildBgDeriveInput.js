@@ -52,7 +52,7 @@ function slimEvidenceRefOnly(ev, i) {
 }
 
 /**
- * Deterministic themes from FR modules and/or G4 capability labels (no extra LLM).
+ * Deterministic themes from FR modules and/or capability labels (no extra LLM).
  */
 function buildBusinessThemes(frRows, g4) {
   const byKey = new Map();
@@ -241,8 +241,8 @@ function buildBgDeriveInput(pack, opts = {}) {
   let frFromCanon = [];
   if (canonicalRaw) {
     try {
-      const { resolveFrListForG4 } = require('./sectionInputContract');
-      frFromCanon = asArray(resolveFrListForG4({ canonicalRaw }, pack));
+      const { resolveFrListForUnderstanding } = require('./sectionInputContract');
+      frFromCanon = asArray(resolveFrListForUnderstanding({ canonicalRaw }, pack));
     } catch {
       frFromCanon = [];
     }
@@ -280,7 +280,7 @@ function buildBgDeriveInput(pack, opts = {}) {
   }
 
   const requirements = selectFrForBg(merged, brqAll).map(({ _requestId, ...rest }) => rest);
-  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
+  const understanding = opts.frUnderstanding || opts.understanding || null;
   const businessThemes = buildBusinessThemes(requirements, g4);
   const evidenceRefs = asArray(opts.evidence || g4?.evidence)
     .slice(0, BG_EVIDENCE_REF_CAP)

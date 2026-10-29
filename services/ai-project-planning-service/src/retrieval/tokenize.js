@@ -1,5 +1,5 @@
 /**
- * Lightweight tokenizer for G7 keyword retrieve.
+ * Lightweight tokenizer for RAG keyword retrieve.
  * Ported from project-service evidenceSpanExtract.tokenizeEvidenceText (parity BM25-lite).
  * Do not require project-service (RULE-11).
  */

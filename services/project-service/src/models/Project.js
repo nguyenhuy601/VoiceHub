@@ -1,7 +1,7 @@
 const mongoose = require('../db');
 
 /**
- * Project aggregate (SSOT identity / settings / scope / G1 lifecycle).
+ * Project aggregate (SSOT identity / settings / scope / catalog lifecycle).
  * Board (TaskBoard) is a child — projectId !== boardId.
  */
 const customerSchema = new mongoose.Schema(
