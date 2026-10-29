@@ -1010,6 +1010,10 @@ async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, feat
       : [],
     comments: [],
     qaReworkNote: String(c.qaReworkNote || '').trim(),
+    // Needed by FixSuggestionPanel / sprint card badge (selected above).
+    fixSuggestion: c.fixSuggestion || { status: 'none', text: '' },
+    retestStatus: c.retestStatus || null,
+    sourceTestCaseId: c.sourceTestCaseId || null,
   }));
 
   const changeRequestService = require('./changeRequest.service');
@@ -1308,6 +1312,10 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
         }))
       : [],
     qaReworkNote: String(c.qaReworkNote || '').trim(),
+    // WorkItemDetail FixSuggestionPanel + board pending badge read these from card payload.
+    fixSuggestion: c.fixSuggestion || { status: 'none', text: '' },
+    retestStatus: c.retestStatus || null,
+    sourceTestCaseId: c.sourceTestCaseId || null,
   }));
 
   const featureCards = featureItems.map((f, idx) => {

@@ -73,7 +73,8 @@ async function suggestReplaceCandidates({ taskId, actorUserId, limit = 5 } = {})
   });
 
   const kind = classifyStaffingFallback(task);
-  const currentAssignees = new Set(collectTaskAssigneeIds(task).map(String));
+  // collectTaskAssigneeIds returns a Set of string userIds (not an Array).
+  const currentAssignees = collectTaskAssigneeIds(task);
   const taskTags = Array.isArray(task.tags)
     ? task.tags.map((t) => String(t || '').trim()).filter(Boolean)
     : [];
@@ -172,8 +173,12 @@ async function applyPmOverrideReassign({
 
   const fromUserId = task.assigneeId ? String(task.assigneeId) : null;
   const before = { assigneeId: fromUserId };
-  task.assigneeId = toUid;
-  await task.save();
+  // $set only — tránh task.save() fail trên seed thiếu createdBy (required trên schema).
+  const setFields = { assigneeId: toUid, updatedAt: new Date() };
+  if (!task.createdBy && asOid(actorUserId)) {
+    setFields.createdBy = asOid(actorUserId);
+  }
+  await Task.updateOne({ _id: tid }, { $set: setFields });
 
   await recordSelectiveMutationAudit({
     organizationId: task.organizationId,
@@ -248,8 +253,12 @@ async function markFailedShortHorizon({ taskId, actorUserId, reason = '', reques
   }
 
   const before = { status: task.status };
-  task.status = 'cancelled';
-  await task.save();
+  // $set only — cùng lý do seed thiếu createdBy như applyPmOverrideReassign.
+  const setFields = { status: 'cancelled', updatedAt: new Date() };
+  if (!task.createdBy && asOid(actorUserId)) {
+    setFields.createdBy = asOid(actorUserId);
+  }
+  await Task.updateOne({ _id: tid }, { $set: setFields });
 
   await recordSelectiveMutationAudit({
     organizationId: task.organizationId,
