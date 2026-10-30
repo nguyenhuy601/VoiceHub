@@ -174,13 +174,29 @@ function createQdrantClient(opts = {}) {
     return found;
   }
 
-  async function search({ vector, snapshotId, limit = 8 }) {
+  async function search({ vector, snapshotId, limit = 8, scope = null, must = null }) {
     const root = assertConfigured();
-    const sid = String(snapshotId || '').trim();
+    const sid = String(snapshotId || scope?.snapshotId || '').trim();
     if (!sid) {
       const err = new Error('snapshotId required for Qdrant search');
       err.code = 'SNAPSHOT_BIND_REQUIRED';
       throw err;
+    }
+    let mustFilters = Array.isArray(must) ? [...must] : null;
+    if (!mustFilters) {
+      try {
+        const { buildQdrantMustFilters } = require('./scopeFilter');
+        mustFilters = buildQdrantMustFilters({
+          snapshotId: sid,
+          projectId: scope?.projectId,
+          tenantId: scope?.tenantId,
+        });
+      } catch {
+        mustFilters = [{ key: 'snapshotId', match: { value: sid } }];
+      }
+    }
+    if (!mustFilters.length) {
+      mustFilters = [{ key: 'snapshotId', match: { value: sid } }];
     }
     const res = await http.post(
       `${root}/collections/${encodeURIComponent(collection)}/points/search`,
@@ -189,7 +205,7 @@ function createQdrantClient(opts = {}) {
         limit: Number(limit) || 8,
         with_payload: true,
         filter: {
-          must: [{ key: 'snapshotId', match: { value: sid } }],
+          must: mustFilters,
         },
       },
       { validateStatus: () => true, timeout: 30000 }

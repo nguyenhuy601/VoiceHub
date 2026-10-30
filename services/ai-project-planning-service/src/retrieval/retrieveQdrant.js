@@ -48,6 +48,7 @@ async function retrieveQdrant(args = {}) {
     vector: emb.embedding,
     snapshotId,
     limit: topK,
+    scope: args.scope || { snapshotId },
   });
   const searchMs = Math.max(
     0,
@@ -66,13 +67,31 @@ async function retrieveQdrant(args = {}) {
       docType: payload.docType || 'unknown',
       metadata: {
         snapshotId: payload.snapshotId || snapshotId,
+        projectId: payload.projectId,
+        tenantId: payload.tenantId,
+        origin: payload.origin,
+        approvalStatus: payload.approvalStatus,
+        sourceVersion: payload.sourceVersion,
+        spanId: payload.spanId,
         embeddingVersion: payload.embeddingVersion,
       },
+      origin: payload.origin,
+      approvalStatus: payload.approvalStatus,
     };
   });
 
-  console.log('[g7_retrieve]', snapshotId, 'hits=', docs.length);
-  return { docs, modeUsed: 'qdrant', isStub: false, timing: { queryEmbedMs, searchMs } };
+  let filtered = docs;
+  try {
+    const { filterDocsForGenerate } = require('./provenanceFilters');
+    const { filterDocsByScope } = require('./scopeFilter');
+    const scope = args.scope || { snapshotId };
+    filtered = filterDocsForGenerate(filterDocsByScope(docs, scope));
+  } catch {
+    filtered = docs;
+  }
+
+  console.log('[g7_retrieve]', snapshotId, 'hits=', filtered.length);
+  return { docs: filtered, modeUsed: 'qdrant', isStub: false, timing: { queryEmbedMs, searchMs } };
 }
 
 module.exports = { retrieveQdrant };

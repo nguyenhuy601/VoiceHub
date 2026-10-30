@@ -28,6 +28,7 @@ import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import WhatMonitorResultsPanel from './WhatMonitorResultsPanel';
 import { shouldShowWhatMonitorResults } from './whatMonitorResultsVisibility';
+import { isWaitingFrConfirm } from './frCheckpointState';
 import { formatMonitorLayerActivity } from './monitorActivityLabels';
 import { isHowRunWallTimedOut } from './WHAT_MONITOR_CONFIG';
 
@@ -921,10 +922,19 @@ export default function AiHitlMonitorPanel({
         </p>
       </div>
       {body}
-      {!monitorInFlight &&
-      resolveMonitorResultsKind(phase, showHowReady) === 'what' &&
-      shouldShowWhatMonitorResults(pack) ? (
-        <WhatMonitorResultsPanel pack={pack} t={t} />
+      {((!monitorInFlight &&
+        resolveMonitorResultsKind(phase, showHowReady) === 'what' &&
+        shouldShowWhatMonitorResults(pack)) ||
+        (resolveMonitorResultsKind(phase, showHowReady) === 'what' &&
+          isWaitingFrConfirm(pack))) ? (
+        <WhatMonitorResultsPanel
+          pack={pack}
+          t={t}
+          organizationId={organizationId}
+          packId={packId}
+          onRefresh={onRefresh}
+          canConfirmFr={canConfirmWbs}
+        />
       ) : null}
       {!monitorInFlight &&
       resolveMonitorResultsKind(phase, showHowReady) === 'how' &&

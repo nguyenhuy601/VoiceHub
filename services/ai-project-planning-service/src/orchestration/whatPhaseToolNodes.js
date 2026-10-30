@@ -217,7 +217,11 @@ function applyFrToolToState(state, frSem) {
     conflictAmbiguityGate: frSem?.conflictAmbiguityGate || null,
     requirementIntegrityGate:
       frSem?.requirementIntegrityGate || frSem?.conflictAmbiguityGate || null,
-    contextPackage: frSem?.g4Out?.contextPackage || frSem?.meta?.g4Out?.contextPackage || null,
+    contextPackage:
+      frSem?.g4Out?.contextPackage ||
+      frSem?.meta?.g4Out?.contextPackage ||
+      state.contextPackage ||
+      null,
     corpusContentHash: frSem?.g4Out?.corpusContentHash || frSem?.meta?.g4Out?.corpusContentHash || null,
     engineResultsById: { fr: resultsById.fr },
     semanticStatuses: { fr: frSem?.status || 'run' },

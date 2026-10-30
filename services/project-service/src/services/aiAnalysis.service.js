@@ -1,10 +1,6 @@
 /**
- * AI Analysis job orchestration (schema v2) — 12 user jobs + gates.
- *
- * Deterministic HOW jobs (effortRoleAnalysis, sequencingCpm, employeeMatching,
- * scheduleCapacity) always run remotely via ai-project-planning-service S2S.
- * AI_PLANNING_REMOTE=0 must NOT reopen in-process HOW engines (flag ignored for
- * HOW routing). LLM WHAT / compact orchestrator / projectPlan remain local.
+ * AI Analysis facade (schema v2) — pack/Gate/snapshot + phase-run S2S to APS.
+ * Phase LLM/tools live on ai-project-planning-service (LangGraph). Per-job run removed.
  */
 
 const RequirementPack = require('../models/RequirementPack');
@@ -18,7 +14,6 @@ const {
   assertPreviousJobConfirmed,
   assertJobNotConfirmedForRerun,
   summarizeAiAnalysis,
-  buildWizardJobDto,
   markJobReadyStub,
   markJobConfirmed,
   markJobsStaleAfter,
@@ -26,12 +21,9 @@ const {
   getJobStatus,
   assertCapabilityConfirmable,
 } = require('../utils/aiAnalysis/aiAnalysisContainer');
-const { parseJobId, AI_ANALYSIS_USER_JOBS } = require('../constants/aiAnalysisJobs.constants');
+const { parseJobId } = require('../constants/aiAnalysisJobs.constants');
 const { ensureHierarchyDecompositionMigrated } = require('../utils/aiAnalysis/aiAnalysisMigrateJobs');
 const { buildAiAnalysisSheet11Buffer } = require('../utils/aiAnalysis/aiAnalysisSheet11Export');
-const {
-  validateAssignmentsAgainstShortlist,
-} = require('../utils/aiAnalysis/aiAnalysisAssignment');
 const {
   mergeHierarchyProposalsIntoFrList,
 } = require('../utils/aiAnalysis/aiAnalysisHierarchyMerge');
@@ -49,8 +41,6 @@ const {
 const { buildJobInputFromSnapshot, buildPackObjectFromSnapshot } = require('../utils/aiAnalysis/pipeline/buildPipeline');
 
 const ALLOWED_STATUS_SET = new Set(AI_PLANNING_ALLOWED_STATUSES);
-/** All AI Analysis user jobs run remotely via APS job registry. */
-const REMOTE_HOW_JOBS = new Set(AI_ANALYSIS_USER_JOBS);
 
 async function loadPackForAiAnalysis({ packId, organizationId }) {
   const pack = await RequirementPack.findOne({
@@ -181,66 +171,6 @@ async function getAiAnalysisSummary({ userId, organizationId, packId }) {
     snapshot: pack.aiAnalysisSnapshotMeta || null,
     liveRun: enriched.liveRun || null,
   };
-}
-
-async function getAiAnalysisWizardJob({ userId, organizationId, packId, job: jobRaw }) {
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:view',
-  });
-  const job = parseJobId(jobRaw);
-  const pack = await loadPackForAiAnalysis({ packId, organizationId });
-  return buildWizardJobDto(ensureAiAnalysisContainer(pack.aiAnalysis), job);
-}
-
-/**
- * Legacy env helper (tests / docs). HOW routing ignores this flag — deterministic
- * HOW jobs are always remote via shouldRunRemoteAiPlanning.
- */
-function isAiPlanningRemoteEnabled() {
-  return String(process.env.AI_PLANNING_REMOTE ?? '1').trim() !== '0';
-}
-
-function shouldRunRemoteAiPlanning(job) {
-  return REMOTE_HOW_JOBS.has(String(job || ''));
-}
-
-/**
- * Remote 202 path — project facade only starts S2S run (no in-process LLM).
- */
-async function startRemoteAiPlanningRun() {
-  const err = new Error('startRemoteAiPlanningRun removed — use startPhaseAiPlanningRun');
-  err.statusCode = 410;
-  err.errorCode = 'JOB_BY_JOB_REMOVED';
-  throw err;
-}
-
-async function runAiAnalysisJob({
-  userId,
-  organizationId,
-  packId,
-  job: jobRaw,
-  force = false,
-}) {
-  void userId;
-  void organizationId;
-  void packId;
-  void force;
-  // RULE-JJ-01: per-job run removed — use startPhaseAiPlanningRun (phase_what / phase_how).
-  let requestedJob = String(jobRaw || '').trim();
-  try {
-    requestedJob = parseJobId(jobRaw);
-  } catch {
-    /* keep raw for error details */
-  }
-  const err = new Error(
-    `Job-by-job AI Analysis run is removed — use phase-run (phase_what / phase_how) instead of job="${requestedJob}"`
-  );
-  err.statusCode = 410;
-  err.errorCode = 'JOB_BY_JOB_REMOVED';
-  err.details = { job: requestedJob, use: 'POST …/ai-analysis/phase-run' };
-  throw err;
 }
 
 async function confirmAiAnalysisJob({
@@ -1003,7 +933,7 @@ async function applyRemoteHowJobResult({
     `Callback rejects per-job result "${jobKey}" — phase_what|phase_how only`
   );
   err.statusCode = 410;
-  err.errorCode = 'JOB_BY_JOB_REMOVED';
+  err.errorCode = 'PHASE_ONLY_CALLBACK';
   err.details = { job: jobKey };
   throw err;
 }
@@ -1354,7 +1284,9 @@ async function resumeInRunHitl({
   } = require('../utils/aiAnalysis/inRunHitlKinds');
   const kindNorm = normalizeInRunKind(kind || 'clarify');
   if (!isInRunHitlKind(kindNorm)) {
-    const err = new Error('kind must be clarify, edit_draft, or wbs_confirm');
+    const err = new Error(
+      'kind must be clarify, edit_draft, wbs_confirm, or fr_confirm'
+    );
     err.statusCode = 400;
     err.errorCode = 'IN_RUN_HITL_KIND_INVALID';
     throw err;
@@ -1452,6 +1384,74 @@ async function resumeInRunHitl({
     }
   }
 
+  // fr_confirm: pin FR baseline on Pack SoT (always-on WHAT checkpoint) before/alongside resume
+  let frBaseline = null;
+  if (kindNorm === 'fr_confirm') {
+    const action = String(resumeBody.action || resumeBody.decision || 'confirm')
+      .trim()
+      .toLowerCase();
+    if (action === 'confirm' || action === 'fr_confirm' || action === 'approve') {
+      const { pinFrBaselineOnContainer } = require('../utils/aiAnalysis/frBaselinePin');
+      const pinned = pinFrBaselineOnContainer(container, {
+        revisionId: resumeBody.frRevisionId || resumeBody.revisionId || null,
+        actorUserId: String(userId),
+        requestId: resumeBody.requestId || resumeBody.idempotencyKey || null,
+      });
+      pack.aiAnalysis = pinned.container;
+      pack.markModified('aiAnalysis');
+      await pack.save();
+      frBaseline = {
+        revisionId: pinned.revisionId,
+        duplicated: pinned.duplicated,
+      };
+      resumeBody.action = 'confirm';
+      resumeBody.frRevisionId = pinned.revisionId;
+      resumeBody.actorUserId = String(userId);
+    } else if (action === 'save_edit' || action === 'edit') {
+      const {
+        appendFrPackChangeEvent,
+        getCurrentFrRevisionId,
+      } = require('../utils/aiAnalysis/frBaselinePin');
+      const baseRevisionId =
+        resumeBody.baseRevisionId || getCurrentFrRevisionId(container);
+      if (
+        resumeBody.baseRevisionId &&
+        getCurrentFrRevisionId(container) &&
+        String(resumeBody.baseRevisionId) !== String(getCurrentFrRevisionId(container))
+      ) {
+        const err = new Error('baseRevisionId does not match current FR revision');
+        err.statusCode = 409;
+        err.errorCode = 'REVISION_CONFLICT';
+        throw err;
+      }
+      const appended = appendFrPackChangeEvent(container, {
+        action: 'human_edit',
+        artifactKind: 'fr',
+        baseRevisionId,
+        newRevisionId: resumeBody.newRevisionId || null,
+        actor: { userId: String(userId), role: resumeBody.role || 'BA' },
+        reason: resumeBody.reason || '',
+        changes: Array.isArray(resumeBody.changes) ? resumeBody.changes : [],
+        impactAssessmentId: resumeBody.impactAssessmentId || null,
+        requestId: resumeBody.requestId || resumeBody.idempotencyKey || null,
+      });
+      pack.aiAnalysis = appended.container;
+      pack.markModified('aiAnalysis');
+      await pack.save();
+      return {
+        accepted: true,
+        remote: false,
+        action: 'fr_save_edit',
+        kind: kindNorm,
+        runId: bound,
+        requestId: appended.requestId,
+        duplicated: appended.duplicated,
+        governanceGate: false,
+        note: 'FR edit recorded on Pack — confirm separately to resume UC/Data',
+      };
+    }
+  }
+
   const s2s = await aiProjectPlanningClient.resumeRun(bound, {
     action: 'in_run_hitl',
     kind: kindNorm,
@@ -1474,6 +1474,7 @@ async function resumeInRunHitl({
     httpStatus: s2s.status === 202 ? 202 : 200,
     governanceGate: false,
     wbsBaseline: packPin,
+    frBaseline,
     note: 'In-run HITL only — Gate 1/2 remain Pack HTTP stamps',
   };
 }
@@ -2162,13 +2163,8 @@ async function startPhaseAiPlanningRun({
 
 module.exports = {
   getAiAnalysisSummary,
-  getAiAnalysisWizardJob,
-  runAiAnalysisJob,
-  startRemoteAiPlanningRun,
   startPhaseAiPlanningRun,
   resumeInRunHitl,
-  isAiPlanningRemoteEnabled,
-  shouldRunRemoteAiPlanning,
   isDuplicateRemoteRun,
   applyRemoteHowJobResult,
   confirmAiAnalysisJob,

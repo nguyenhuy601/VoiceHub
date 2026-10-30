@@ -144,6 +144,11 @@ const TOOL_ACTIVITY = Object.freeze({
     key: 'requirements.aiHitlMonitorActivity_evaluateLocal',
     fallback: 'Đang đánh giá đủ thông tin…',
   },
+  metaGate: {
+    key: 'requirements.aiHitlMonitorActivity_metaGate',
+    fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
+  },
+  // Legacy node id
   finalizeMeta: {
     key: 'requirements.aiHitlMonitorActivity_metaGate',
     fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
@@ -151,10 +156,6 @@ const TOOL_ACTIVITY = Object.freeze({
   scoreCompleteness: {
     key: 'requirements.aiHitlMonitorActivity_scoreCompleteness',
     fallback: 'Đang chấm đủ artifact…',
-  },
-  metaGate: {
-    key: 'requirements.aiHitlMonitorActivity_metaGate',
-    fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
   },
   gateTools: {
     key: 'requirements.aiHitlMonitorActivity_gateTools',

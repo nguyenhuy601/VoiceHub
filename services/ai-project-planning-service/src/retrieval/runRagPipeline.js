@@ -59,36 +59,68 @@ async function dispatchRetrieve({
   intent,
   snapshotId,
   env,
+  scope,
 }) {
   if (mode === 'off') {
-    return { docs: [], modeUsed: 'off', isStub: true };
+    return { docs: [], modeUsed: 'off', isStub: true, retrievalStatus: 'ok' };
   }
   if (mode === 'keyword') {
     const started = process.hrtime.bigint();
-    const { docs, modeUsed } = retrieveKeyword({ query, corpus, intent });
+    const { docs, modeUsed } = retrieveKeyword({ query, corpus, intent, scope });
     const bm25Ms = Math.max(0, Math.round(Number(process.hrtime.bigint() - started) / 1e6));
-    return { docs, modeUsed, isStub: false, timing: { bm25Ms, queryEmbedMs: 0, searchMs: 0 } };
+    return {
+      docs,
+      modeUsed,
+      isStub: false,
+      retrievalStatus: 'ok',
+      timing: { bm25Ms, queryEmbedMs: 0, searchMs: 0 },
+    };
   }
   if (mode === 'qdrant') {
-    const out = await retrieveQdrant({ query, snapshotId, env });
-    return {
-      docs: out.docs,
-      modeUsed: 'qdrant',
-      isStub: false,
-      timing: { bm25Ms: 0, ...(out.timing || {}) },
-    };
+    try {
+      const out = await retrieveQdrant({ query, snapshotId, env, scope });
+      return {
+        docs: out.docs,
+        modeUsed: 'qdrant',
+        isStub: false,
+        retrievalStatus: 'ok',
+        timing: { bm25Ms: 0, ...(out.timing || {}) },
+      };
+    } catch (err) {
+      const { docs } = retrieveKeyword({ query, corpus, intent, scope });
+      return {
+        docs,
+        modeUsed: 'keyword',
+        isStub: false,
+        retrievalStatus: 'degraded',
+        retrieveWarning: String(err?.message || err),
+        timing: { bm25Ms: 0, queryEmbedMs: 0, searchMs: 0 },
+      };
+    }
   }
   if (mode === 'hybrid') {
     const kwStarted = process.hrtime.bigint();
-    const { docs: kwDocs } = retrieveKeyword({ query, corpus, intent });
+    const { docs: kwDocs } = retrieveKeyword({ query, corpus, intent, scope });
     const bm25Ms = Math.max(0, Math.round(Number(process.hrtime.bigint() - kwStarted) / 1e6));
-    const qd = await retrieveQdrant({ query, snapshotId, env });
-    return {
-      docs: mergeDocsBySource(kwDocs, qd.docs),
-      modeUsed: 'hybrid',
-      isStub: false,
-      timing: { bm25Ms, ...(qd.timing || {}) },
-    };
+    try {
+      const qd = await retrieveQdrant({ query, snapshotId, env, scope });
+      return {
+        docs: mergeDocsBySource(kwDocs, qd.docs),
+        modeUsed: 'hybrid',
+        isStub: false,
+        retrievalStatus: 'ok',
+        timing: { bm25Ms, ...(qd.timing || {}) },
+      };
+    } catch (err) {
+      return {
+        docs: kwDocs,
+        modeUsed: 'keyword',
+        isStub: false,
+        retrievalStatus: 'degraded',
+        retrieveWarning: String(err?.message || err),
+        timing: { bm25Ms, queryEmbedMs: 0, searchMs: 0 },
+      };
+    }
   }
   // legacy hybrid (pre-qdrant) path when explicitly requested without snapshot — keep retrieveHybrid
   if (mode === 'hybrid_legacy') {
@@ -138,13 +170,22 @@ async function runRagPipeline(input = {}) {
     }
   }
 
-  const { docs, modeUsed, isStub, timing = {} } = await dispatchRetrieve({
+  const scope = input.scope || (snapshotId ? { snapshotId } : null);
+  const {
+    docs,
+    modeUsed,
+    isStub,
+    timing = {},
+    retrievalStatus = 'ok',
+    retrieveWarning = null,
+  } = await dispatchRetrieve({
     query,
     corpus,
     mode,
     intent,
     snapshotId,
     env: input.env,
+    scope,
   });
 
   const rerankStarted = process.hrtime.bigint();
@@ -175,6 +216,7 @@ async function runRagPipeline(input = {}) {
         event: 'g7_retrieve',
         snapshotId,
         mode: modeUsed || mode,
+        retrievalStatus,
         bm25Ms: timing.bm25Ms ?? 0,
         queryEmbedMs: timing.queryEmbedMs ?? 0,
         searchMs: timing.searchMs ?? 0,
@@ -195,15 +237,19 @@ async function runRagPipeline(input = {}) {
       mode: mode === 'off' ? 'off' : mode,
       intent,
       stub: true,
+      retrievalStatus: retrievalStatus === 'ok' ? 'failed' : retrievalStatus,
       steps: [...RAG_PIPELINE_STEPS],
       _validationErrors: validated.errors,
+      ...(retrieveWarning ? { retrieveWarning } : {}),
     };
   }
 
   return {
     ...validated.package,
     stub: pkg.stub === false ? false : Boolean(pkg.stub),
+    retrievalStatus,
     steps: [...RAG_PIPELINE_STEPS],
+    ...(retrieveWarning ? { retrieveWarning } : {}),
   };
 }
 
@@ -224,7 +270,12 @@ function runRagPipelineSync(input = {}) {
     docs = [];
     isStub = true;
   } else if (mode === 'keyword') {
-    ({ docs, modeUsed } = retrieveKeyword({ query, corpus, intent }));
+    ({ docs, modeUsed } = retrieveKeyword({
+      query,
+      corpus,
+      intent,
+      scope: input.scope || null,
+    }));
     isStub = false;
   } else {
     const stubOut = retrieveStub({ query, corpus, mode: 'stub' });

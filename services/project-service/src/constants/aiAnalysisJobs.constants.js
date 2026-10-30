@@ -24,7 +24,6 @@ const AI_ANALYSIS_USER_JOBS = Object.freeze([
 
 /** ADR 0003 — WHAT jobs (Requirement Analysis path)
  * Shells only — confirmed at Gate1 after remote APS phase_what.
- * Do not run these via runAiAnalysisJob; use phase_what instead.
  */
 const AI_ANALYSIS_WHAT_JOBS = Object.freeze([
   'hierarchyDecomposition',

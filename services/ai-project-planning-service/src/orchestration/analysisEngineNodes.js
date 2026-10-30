@@ -1,5 +1,5 @@
 /**
- * WHAT meta-gate node for whatPhaseGraph assemble.
+ * WHAT metaGate node helper for whatPhaseGraph (Gate 1 readiness CHECK).
  * Legacy enterTools / per-engine fan-out removed — sections run via Pattern B.
  */
 

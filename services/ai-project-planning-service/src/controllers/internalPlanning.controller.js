@@ -1206,7 +1206,7 @@ async function resumeRun(req, res) {
       if (!isInRunHitlKind(kind)) {
         return res.status(400).json({
           success: false,
-          message: 'kind must be clarify, edit_draft, or wbs_confirm',
+          message: 'kind must be clarify, edit_draft, wbs_confirm, or fr_confirm',
           errorCode: 'IN_RUN_HITL_KIND_INVALID',
         });
       }

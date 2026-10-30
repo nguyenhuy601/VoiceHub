@@ -286,38 +286,18 @@ function buildHowPhaseGraph(hooks = {}) {
     }
 
     onProgress?.({ node: 'prepareHowContext', phase: 'how' });
-    const corpus = buildCorpusFromSnapshot(state.snapshot);
-    let ingestWarning = null;
-    try {
-      const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
-      const { getRagMode } = require('../retrieval/ragPipelineSchemas');
-      const mode = getRagMode();
-      if ((mode === 'qdrant' || mode === 'hybrid') && state.snapshotId) {
-        await ingestSnapshotToQdrant({
-          snapshot: state.snapshot,
-          snapshotId: state.snapshotId,
-          corpus,
-        });
-      }
-    } catch (ingestErr) {
-      const { getRagMode, requiresQdrant } = require('../retrieval/ragPipelineSchemas');
-      const mode = getRagMode();
-      if (requiresQdrant(mode)) {
-        console.error('[g7_ingest] fail-closed', ingestErr?.message || ingestErr);
-        throw ingestErr;
-      }
-      ingestWarning = String(ingestErr?.message || ingestErr);
-      console.warn('[g7_ingest] soft', ingestWarning);
-    }
+    const { preparePhaseRagContext } = require('../retrieval/preparePhaseRagContext');
     const query = buildHowBacklogRetrieveQuery(state.pack || {});
-    let contextPackage = await assembleContextPackageAsync({
-      query,
-      corpus,
+    const prepared = await preparePhaseRagContext({
+      phase: 'how',
+      snapshot: state.snapshot,
       snapshotId: state.snapshotId,
+      pack: state.pack,
+      query,
+      taskPurpose: 'how_backlog',
     });
-    if (ingestWarning && contextPackage && typeof contextPackage === 'object') {
-      contextPackage = { ...contextPackage, ingestWarning };
-    }
+    const corpus = prepared.corpus;
+    const contextPackage = prepared.contextPackage;
     const { itemCount } = buildCtxPromptFragment(contextPackage);
     logHowCtx('prepareHowContext:how_backlog', contextPackage, itemCount);
     await persistNode(

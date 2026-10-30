@@ -59,6 +59,8 @@ const ALLOWED_KEYS = new Set([
   'prepareWhat',
   'prepareHowContext',
   'selectTools',
+  'metaGate',
+  // Legacy graph node id (pre-rename); keep for old checkpoint blobs
   'finalizeMeta',
   'plan',
   'select',

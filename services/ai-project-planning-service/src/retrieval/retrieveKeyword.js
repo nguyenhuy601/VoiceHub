@@ -14,6 +14,12 @@ const INTENT_DOC_TYPES = Object.freeze({
   metric_def: Object.freeze(['metric_def']),
   requirement_evidence: Object.freeze([
     'evidence_span',
+    'customer_raw',
+    'overview',
+    'business_goal',
+    'business_rule',
+    'scope_item',
+    'actor',
     'srs_canonical',
     'srs_nfr',
     'srs_uc',
@@ -56,11 +62,16 @@ function preferredDocTypes(intent) {
 }
 
 /**
- * @param {{ query?: string, corpus?: object[], intent?: string }} args
+ * @param {{ query?: string, corpus?: object[], intent?: string, scope?: object }} args
  * @returns {{ docs: object[], modeUsed: 'keyword' }}
  */
-function retrieveKeyword({ query = '', corpus = [], intent = 'general' } = {}) {
-  const list = Array.isArray(corpus) ? corpus : [];
+function retrieveKeyword({ query = '', corpus = [], intent = 'general', scope = null } = {}) {
+  let list = Array.isArray(corpus) ? corpus : [];
+  if (scope && (scope.snapshotId || scope.projectId || scope.tenantId)) {
+    const { filterDocsByScope } = require('./scopeFilter');
+    const { filterDocsForGenerate } = require('./provenanceFilters');
+    list = filterDocsForGenerate(filterDocsByScope(list, scope));
+  }
   const queryTokens = tokenize(query);
   const preferred = new Set(preferredDocTypes(intent));
 

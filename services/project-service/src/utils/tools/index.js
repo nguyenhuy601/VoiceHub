@@ -172,7 +172,6 @@ module.exports = {
     .assertRequirementGate1Approve,
   buildHeuristicRequirementInsights: require('./requirementInsightsSchema')
     .buildHeuristicRequirementInsights,
-  runRequirementReasoning: require('./runRequirementReasoning').runRequirementReasoning,
   buildProposedSrsDraft: require('./buildProposedSrsDraft').buildProposedSrsDraft,
   runPreApprovalValidation: require('./runPreApprovalValidation').runPreApprovalValidation,
   collectGateAAdvisorySignals: require('./gateAAdvisorySignals').collectGateAAdvisorySignals,

@@ -102,6 +102,7 @@ const WhatPhaseState = Annotation.Root({
   }),
   startedAt: field(),
   hitl: field(),
+  humanResume: field(),
   frOpts: field(),
   env: field(),
   understandingPartial: field(),
@@ -350,7 +351,16 @@ function buildWhatPhaseGraph(hooks = {}) {
         frRows.length
       );
     }
-    const corpus = buildCorpusFromSnapshot(snapshot);
+    const { preparePhaseRagContext } = require('../retrieval/preparePhaseRagContext');
+    const prepared = await preparePhaseRagContext({
+      phase: 'what',
+      snapshot,
+      snapshotId: state.snapshotId,
+      pack: state.pack,
+      taskPurpose: 'what_prepare',
+    });
+    const corpus = prepared.corpus;
+    const contextPackage = prepared.contextPackage;
     const frCount = Array.isArray(frRows) ? frRows.length : 0;
     whatTiming = markStage(whatTiming, 'prepareWhat', {
       ms: endUnderstand(),
@@ -358,9 +368,9 @@ function buildWhatPhaseGraph(hooks = {}) {
       candidateCount: null,
       topLevelFrCount: topLen,
     });
-    const history = ['step2:prepare', 'prepareWhat'];
+    const history = ['step2:prepare', 'prepareWhat', 'context:what_base'];
     await persistNode(
-      { ...state, snapshot, history, whatTiming, corpus },
+      { ...state, snapshot, history, whatTiming, corpus, contextPackage },
       'prepareWhat',
       onCheckpoint
     );
@@ -369,6 +379,7 @@ function buildWhatPhaseGraph(hooks = {}) {
       history,
       whatTiming,
       corpus,
+      contextPackage,
     };
   });
 
@@ -439,11 +450,108 @@ function buildWhatPhaseGraph(hooks = {}) {
 
   graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'what', onProgress }));
 
+  /**
+   * Staged FR HITL (always-on): stamp revision + interrupt/soft-wait until baseline pinned.
+   * Side effects before interrupt are idempotent (revision contentHash / pin requestId).
+   */
+  graph.addNode('frCheckpoint', async (state) => {
+    onProgress?.({ node: 'frCheckpoint', phase: 'what' });
+    const {
+      stampFrRevisionAfterTool,
+      needsFrConfirm,
+      applyFrConfirmResume,
+      getCurrentRequirementsRevisionId,
+    } = require('../planningRevision');
+    const { awaitInRunHitl, normalizeInRunKind } = require('./hitlInterrupt');
+
+    let next = { ...state };
+    const hrEnvelope = state.humanResume;
+    if (hrEnvelope && typeof hrEnvelope === 'object') {
+      const kind = normalizeInRunKind(hrEnvelope.kind || hrEnvelope.resume?.kind);
+      const resumeBody =
+        hrEnvelope.resume && typeof hrEnvelope.resume === 'object'
+          ? { ...hrEnvelope.resume, kind }
+          : { ...hrEnvelope, kind };
+      if (kind === 'fr_confirm') {
+        const applied = applyFrConfirmResume(next, {
+          ...resumeBody,
+          kind: 'fr_confirm',
+          action: resumeBody.action || resumeBody.decision || 'confirm',
+        });
+        if (applied.applied) {
+          next = applied.state;
+        }
+      }
+    }
+
+    const stamped = stampFrRevisionAfterTool(next.container || {}, {
+      runId: next.runId || null,
+      toolName: WHAT_FR_TOOL,
+      srsProposal: next.srsProposal || null,
+    });
+    next = {
+      ...next,
+      container: stamped.container,
+      history: stamped.created
+        ? [`fr_revision:${stamped.revision.revisionId}`]
+        : stamped.revision
+          ? ['fr_revision:idempotent']
+          : ['fr_revision:empty'],
+    };
+
+    if (needsFrConfirm(next)) {
+      const frRev = getCurrentRequirementsRevisionId(next.container, 'fr');
+      const content = stamped.revision?.content || {};
+      const hitl = awaitInRunHitl({
+        kind: 'fr_confirm',
+        runId: next.runId,
+        snapshotId: next.snapshotId,
+        summary: {
+          frRevisionId: frRev,
+          frCount: Number(content.frCount) || 0,
+          note: 'Confirm FR baseline before UC/Data',
+        },
+        prompt: 'Xác nhận FR để chạy tiếp UC/Data',
+      });
+      if (hitl && hitl.skipped) {
+        await persistNode(next, 'frCheckpoint', onCheckpoint, {
+          status: 'waiting_human',
+          hitl: {
+            type: 'in_run_hitl',
+            kind: 'fr_confirm',
+            waiting: true,
+            frRevisionId: frRev,
+          },
+        });
+        return {
+          container: next.container,
+          humanResume: null,
+          history: [`frCheckpoint:waiting_soft:${hitl.reason || 'skipped'}`],
+          hitl: {
+            type: 'in_run_hitl',
+            kind: 'fr_confirm',
+            waiting: true,
+            frRevisionId: frRev,
+          },
+          paused: true,
+        };
+      }
+    }
+
+    return {
+      container: next.container,
+      humanResume: null,
+      history: ['frCheckpoint:ok'],
+      hitl: next.hitl || null,
+      paused: false,
+    };
+  });
+
   function routeAfterSelectToolsWhat(state) {
-    if (routeAfterSelectTools(state) === 'assemble') return 'finalizeMeta';
+    if (routeAfterSelectTools(state) === 'assemble') return 'metaGate';
     const ai = lastAiMessage(state.messages);
     const calls = toolCallsFromMessage(ai);
-    if (!calls.length) return 'finalizeMeta';
+    if (!calls.length) return 'metaGate';
     const sends = [];
     let plainQueued = false;
     for (const call of calls) {
@@ -465,12 +573,12 @@ function buildWhatPhaseGraph(hooks = {}) {
         );
       }
     }
-    return sends.length ? sends : 'finalizeMeta';
+    return sends.length ? sends : 'metaGate';
   }
 
-  graph.addNode('finalizeMeta', async (state) => {
+  graph.addNode('metaGate', async (state) => {
     onProgress?.({
-      node: 'finalizeMeta',
+      node: 'metaGate',
       phase: 'what',
       step: 4,
       substep: 'meta_gate',
@@ -479,7 +587,7 @@ function buildWhatPhaseGraph(hooks = {}) {
       const score = scoreArtifactCompleteness(state, 'what');
       return {
         completeness: score,
-        history: ['finalizeMeta:skipped_stop'],
+        history: ['metaGate:skipped_stop'],
       };
     }
     const out = await runMetaGateNode(state);
@@ -495,7 +603,7 @@ function buildWhatPhaseGraph(hooks = {}) {
       engineResultsById: out.engineResultsById,
       container: out.container,
       completeness: score,
-      history: ['finalizeMeta'],
+      history: ['metaGate'],
       whatTiming: out.whatTiming,
     };
   });
@@ -548,21 +656,33 @@ function buildWhatPhaseGraph(hooks = {}) {
   graph.addEdge(START, 'prepareWhat');
   graph.addEdge('prepareWhat', 'selectTools');
   graph.addConditionalEdges('selectTools', routeAfterSelectToolsWhat);
-  if (!whatSectionNames.has(WHAT_FR_TOOL)) {
-    graph.addEdge(WHAT_FR_TOOL, 'selectTools');
-  }
+  // WhatFrTool → FR checkpoint → selectTools; other sections → selectTools
+  graph.addEdge(WHAT_FR_TOOL, 'frCheckpoint');
+  graph.addEdge('frCheckpoint', 'selectTools');
   for (const toolName of whatSectionNames) {
+    if (toolName === WHAT_FR_TOOL) continue;
     graph.addEdge(toolName, 'selectTools');
   }
   graph.addEdge(PLAIN_TOOLS_NODE, 'selectTools');
-  graph.addEdge('finalizeMeta', 'scoreCompleteness');
+  graph.addEdge('metaGate', 'scoreCompleteness');
   graph.addConditionalEdges(
     'scoreCompleteness',
-    (state) =>
-      routeAfterCompleteness(state, {
+    (state) => {
+      const {
+        isWhatWaitingFrStopReason,
+        isWaitingFrConfirmOnly,
+      } = require('./computeEligibleWhatTools');
+      if (
+        isWhatWaitingFrStopReason(state.stopReason) ||
+        isWaitingFrConfirmOnly(state)
+      ) {
+        return 'emitIncomplete';
+      }
+      return routeAfterCompleteness(state, {
         maxEnrich: envMaxEnrich(state.env || process.env),
         env: state.env || process.env,
-      }),
+      });
+    },
     {
       injectGap: 'injectGap',
       emitReady: 'emitReady',

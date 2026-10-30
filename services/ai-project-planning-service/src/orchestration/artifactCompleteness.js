@@ -210,6 +210,20 @@ function routeAfterCompleteness(state, opts = {}) {
       stop === 'HOW_DEPENDENCY_NOT_SCHEDULE_READY' ||
       stop.startsWith('HOW_NO_ELIGIBLE');
   }
+  try {
+    const {
+      isWhatWaitingFrStopReason,
+      isWaitingFrConfirmOnly,
+    } = require('./computeEligibleWhatTools');
+    if (
+      isWhatWaitingFrStopReason(stop) ||
+      (score.phase === 'what' && isWaitingFrConfirmOnly(state))
+    ) {
+      deadlockStop = true;
+    }
+  } catch {
+    if (stop === 'WHAT_WAITING_FR_CONFIRM') deadlockStop = true;
+  }
   let hardToolStop = stop === 'TOOL_FAILED' || stop.startsWith('TOOL_FAILED:');
   if (!hardToolStop) {
     try {

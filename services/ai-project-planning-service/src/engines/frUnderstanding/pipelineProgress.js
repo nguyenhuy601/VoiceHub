@@ -31,7 +31,7 @@ const SUBSTEPS = {
   observe: { step: 4, substep: 'observe' },
   evaluate_local: { step: 4, substep: 'evaluate_local' },
   meta_gate: { step: 4, substep: 'meta_gate' },
-  /** Internal finalize only — UI step 4 ends at meta_gate */
+  /** Internal emit only — UI step 4 ends at meta_gate */
   feasibility: { step: 4, substep: 'meta_gate' },
 };
 

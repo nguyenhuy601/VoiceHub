@@ -1,5 +1,5 @@
 /**
- * HOW planning revision / impact / WBS checkpoint (additive).
+ * HOW planning revision / impact / WBS checkpoint + WHAT FR checkpoint (additive).
  */
 
 module.exports = {
@@ -9,5 +9,6 @@ module.exports = {
   ...require('./impactAssessment'),
   ...require('./planManifest'),
   ...require('./wbsCheckpoint'),
+  ...require('./frCheckpoint'),
   ...require('./humanEditPipeline'),
 };

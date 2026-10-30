@@ -21,8 +21,6 @@ const {
 } = require('../services/requirementPack.service');
 const {
   getAiAnalysisSummary,
-  getAiAnalysisWizardJob,
-  runAiAnalysisJob,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
   startPhaseAiPlanningRun,
@@ -546,64 +544,7 @@ async function getAiAnalysis(req, res) {
       message: "organizationId và packId bắt buộc",
     });
     }
-    const view = String(req.query?.view || '').trim().toLowerCase();
-    const job = String(req.query?.job || '').trim();
-    if (view === 'summary' || !job) {
-      const data = await getAiAnalysisSummary({ userId, organizationId, packId });
-      return res.json({ success: true, data });
-    }
-    const data = await getAiAnalysisWizardJob({ userId, organizationId, packId, job });
-    return res.json({ success: true, data });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function runAiAnalysis(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    const jobId = String(req.params.jobId || '').trim();
-    if (!organizationId || !packId || !jobId) {
-      return sendServiceError(res, 400, {
-      errorCode: 'VALIDATION_FAILED',
-      messageUser: "organizationId, packId và jobId bắt buộc",
-      message: "organizationId, packId và jobId bắt buộc",
-    });
-    }
-    const data = await runAiAnalysisJob({
-      userId,
-      organizationId,
-      packId,
-      job: jobId,
-      force: Boolean(req.body?.force),
-    });
-    return res.json({ success: true, data });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function confirmAiAnalysis(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    const jobId = String(req.params.jobId || '').trim();
-    if (!organizationId || !packId || !jobId) {
-      return sendServiceError(res, 400, {
-      errorCode: 'VALIDATION_FAILED',
-      messageUser: "organizationId, packId và jobId bắt buộc",
-      message: "organizationId, packId và jobId bắt buộc",
-    });
-    }
-    const data = await confirmAiAnalysisJob({
-      userId,
-      organizationId,
-      packId,
-      job: jobId,
-    });
+    const data = await getAiAnalysisSummary({ userId, organizationId, packId });
     return res.json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
@@ -741,8 +682,6 @@ module.exports = {
   approveAiStaffing,
   discardAiStaffing,
   getAiAnalysis,
-  runAiAnalysis,
-  confirmAiAnalysis,
   confirmAiAnalysisPhase,
   exportAiAnalysis,
   startPhaseAiPlanning,

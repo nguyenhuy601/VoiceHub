@@ -85,6 +85,7 @@ function logIngest(detail) {
 }
 
 function toPoint(snapshotId, doc, vector, embeddingVersion) {
+  const meta = doc.metadata && typeof doc.metadata === 'object' ? doc.metadata : {};
   return {
     id: pointId(snapshotId, doc.sourceId, embeddingVersion),
     vector,
@@ -95,6 +96,12 @@ function toPoint(snapshotId, doc, vector, embeddingVersion) {
       text: String(doc.text).slice(0, 2000),
       embeddingVersion,
       contentHash: computeDocumentContentHash(doc),
+      projectId: meta.projectId || undefined,
+      tenantId: meta.tenantId || undefined,
+      origin: meta.origin || undefined,
+      approvalStatus: meta.approvalStatus || undefined,
+      sourceVersion: meta.sourceVersion || undefined,
+      spanId: meta.spanId || undefined,
     },
   };
 }

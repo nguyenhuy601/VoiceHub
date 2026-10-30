@@ -5,7 +5,7 @@
 const AiAnalysisSnapshot = require('../models/AiAnalysisSnapshot');
 const RequirementPack = require('../models/RequirementPack');
 const { assertRequirementPermission } = require('./requirementAccess.service');
-const { buildPackContentHash } = require('../utils/aiAnalysis/aiAnalysisCompactPolicy');
+const { buildPackContentHash } = require('../utils/aiAnalysis/packContentHash');
 const { buildSnapshotPayload } = require('../utils/aiAnalysis/pipeline/buildPipeline');
 const {
   isSnapshotPipelineEnabled,

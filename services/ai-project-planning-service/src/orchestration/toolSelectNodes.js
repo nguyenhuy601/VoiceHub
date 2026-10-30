@@ -163,10 +163,39 @@ function whatRequiredToolsStillMissing(state) {
   try {
     const { requiredWhatTools, successfulWhatTools } = require('./artifactCompleteness');
     const done = successfulWhatTools(state);
-    return requiredWhatTools().filter((name) => !done.has(name));
+    const missing = requiredWhatTools().filter((name) => !done.has(name));
+    // Do not force UC/Data while FR baseline checkpoint is waiting.
+    const { computeEligibleWhatTools } = require('./computeEligibleWhatTools');
+    const { eligible } = computeEligibleWhatTools(state);
+    const allow = new Set(eligible);
+    return missing.filter((name) => allow.has(name));
   } catch {
     return [];
   }
+}
+
+/**
+ * Keep only WHAT tool_calls that are currently eligible (FR baseline + DAG deps).
+ * @param {object} state
+ * @param {Array<{ name?: string, toolName?: string }>} toolCalls
+ */
+function filterWhatToolCallsByEligible(state, toolCalls) {
+  const list = Array.isArray(toolCalls) ? toolCalls : [];
+  if (!list.length) return list;
+  const { computeEligibleWhatTools } = require('./computeEligibleWhatTools');
+  const { eligible } = computeEligibleWhatTools(state);
+  const allow = new Set(eligible);
+  return list.filter((c) => {
+    const name = String(c?.name || c?.toolName || '').trim();
+    return Boolean(name) && allow.has(name);
+  });
+}
+
+function filterWhatToolCallsForSelect(state, toolCalls) {
+  return filterWhatToolCallsByEligible(
+    state,
+    filterAlreadySuccessfulWhatToolCalls(state, toolCalls)
+  );
 }
 
 /**
@@ -293,14 +322,14 @@ async function decideToolCalls(state, opts = {}) {
     stub: false,
   };
 
-  // WHAT: never re-execute a tool that already succeeded (LLM often re-picks BG).
+  // WHAT: drop done + ineligible (FR baseline / DAG deps).
   if (phase === 'what' && decision.tool_calls.length) {
     const before = decision.tool_calls.length;
-    decision.tool_calls = filterAlreadySuccessfulWhatToolCalls(state, decision.tool_calls);
+    decision.tool_calls = filterWhatToolCallsForSelect(state, decision.tool_calls);
     const dropped = before - decision.tool_calls.length;
     if (dropped > 0) {
       console.info(
-        '[agent_core] what.selectTools drop_already_done dropped=%s remain=%s',
+        '[agent_core] what.selectTools drop_done_or_ineligible dropped=%s remain=%s',
         dropped,
         decision.tool_calls.length
       );
@@ -321,7 +350,7 @@ async function decideToolCalls(state, opts = {}) {
     }
   }
 
-  // Hard gate: LLM often returns done=true with empty calls → prepare→finalizeMeta skip.
+  // Hard gate: LLM often returns done=true with empty calls → prepare→metaGate skip.
   // WHAT must run full catalog before done (completeness SoT).
   if (phase === 'what' && (!decision.tool_calls.length || decision.done)) {
     const missing = whatRequiredToolsStillMissing(state);
@@ -482,8 +511,13 @@ function createSelectToolsNode(hooks = {}) {
       findStuckIncompleteTool,
     } = require('./howPhaseToolNodes');
 
-    // Hard gate (incl. custom decideToolCalls): never re-Send tools already successful.
+    // Hard gate (incl. custom decideToolCalls): never re-Send tools already successful / ineligible.
     if (phase === 'what') {
+      const {
+        computeEligibleWhatTools,
+        isWaitingFrConfirmOnly,
+        STOP_WHAT_WAITING_FR_CONFIRM,
+      } = require('./computeEligibleWhatTools');
       if (hasPhaseHardToolStop(state)) {
         const hardFail = (Array.isArray(state?.toolResults) ? state.toolResults : []).find(
           (row) => row?.error
@@ -495,34 +529,61 @@ function createSelectToolsNode(hooks = {}) {
         );
         decision = { tool_calls: [], done: true, stub: false };
         hardStopReason = STOP_TOOL_FAILED;
+      } else if (isWaitingFrConfirmOnly(state)) {
+        console.info('[agent_core] what.selectTools waiting_fr_confirm');
+        decision = { tool_calls: [], done: true, stub: false };
+        hardStopReason = STOP_WHAT_WAITING_FR_CONFIRM;
       } else {
+        const { eligible } = computeEligibleWhatTools(state);
         const rawCalls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
-        const filtered = filterAlreadySuccessfulWhatToolCalls(state, rawCalls);
+        let filtered = filterWhatToolCallsForSelect(state, rawCalls);
         if (filtered.length < rawCalls.length) {
           console.info(
-            '[agent_core] what.selectTools drop_already_done dropped=%s remain=%s',
+            '[agent_core] what.selectTools drop_done_or_ineligible dropped=%s remain=%s eligible=%s',
             rawCalls.length - filtered.length,
-            filtered.length
+            filtered.length,
+            eligible.length
           );
         }
         if (!filtered.length) {
-          const missing = whatRequiredToolsStillMissing(state);
-          if (missing.length) {
-            const tools = describeToolsForPrompt(phase);
-            decision = stubDecideToolCalls(
-              {
-                ...state,
-                gapReport: {
-                  ...(state.gapReport || {}),
-                  missing,
-                  hint: `Missing required WHAT tools: ${missing.join(', ')}`,
-                },
-              },
-              tools,
-              phase
+          if (eligible.length) {
+            const next = eligible[0];
+            console.info(
+              '[agent_core] what.selectTools pick_eligible tool=%s eligible=%s',
+              next,
+              eligible.length
             );
+            decision = {
+              tool_calls: [{ id: `elig_${next}`, name: next, args: {} }],
+              done: false,
+              stub: true,
+            };
           } else {
-            decision = { ...decision, tool_calls: [], done: true };
+            const missing = whatRequiredToolsStillMissing(state);
+            if (missing.length) {
+              const tools = describeToolsForPrompt(phase);
+              decision = stubDecideToolCalls(
+                {
+                  ...state,
+                  gapReport: {
+                    ...(state.gapReport || {}),
+                    missing,
+                    hint: `Missing required WHAT tools: ${missing.join(', ')}`,
+                  },
+                },
+                tools,
+                phase
+              );
+              decision.tool_calls = filterWhatToolCallsForSelect(
+                state,
+                decision.tool_calls || []
+              );
+              if (!decision.tool_calls.length) {
+                decision = { tool_calls: [], done: true };
+              }
+            } else {
+              decision = { ...decision, tool_calls: [], done: true };
+            }
           }
         } else {
           decision = { ...decision, tool_calls: filtered, done: false };
@@ -1118,6 +1179,8 @@ module.exports = {
   decideToolCalls,
   stubDecideToolCalls,
   filterAlreadySuccessfulWhatToolCalls,
+  filterWhatToolCallsByEligible,
+  filterWhatToolCallsForSelect,
   filterAlreadySuccessfulHowToolCalls,
   filterHowToolCallsBySoftDeps,
   filterHowToolCallsForSelect,

@@ -1,9 +1,8 @@
 /**
- * Orchestrate AI Requirement WHAT phase on project-service (serial jobs + materialize).
- * Returns 202 immediately; work continues in background via setImmediate.
+ * WHAT phase helpers on project-service — prepare/materialize/pack domain.
+ * Phase LLM runs on APS via phase-run (not local job loop).
  */
 
-const { AI_ANALYSIS_WHAT_JOBS } = require('../constants/aiAnalysisJobs.constants');
 const {
   ensureAiAnalysisContainer,
 } = require('../utils/aiAnalysis/aiAnalysisContainer');
@@ -13,24 +12,6 @@ const {
 } = require('../utils/aiAnalysis/applyProposedSrsToPack');
 const CustomerDocument = require('../models/CustomerDocument');
 const RequirementPack = require('../models/RequirementPack');
-
-function isHitlAutoWhatEnabled() {
-  // Wave 1 hướng B: default OFF — Understanding deterministic before Gate 1.
-  const raw = String(process.env.HITL_AUTO_WHAT ?? '0').trim().toLowerCase();
-  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== '';
-}
-
-function isAutoWhatConfirmEnabled() {
-  const raw = String(process.env.AUTO_WHAT_CONFIRM ?? '0').trim().toLowerCase();
-  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== '';
-}
-
-/**
- * Pure helper — WHAT job order for tests / policy.
- */
-function getWhatJobOrder() {
-  return [...AI_ANALYSIS_WHAT_JOBS];
-}
 
 function persistFormValidationOnPack(pack, formValidation) {
   if (!pack || !formValidation) return formValidation;
@@ -558,69 +539,6 @@ async function prepareAutoConfirm(pack, job) {
 }
 
 /**
- * Background runner — REMOVED job-by-job WHAT loop (RULE-JJ-01).
- * Legacy entry marks phase_what failed; use phase_what FR remote instead.
- */
-async function runWhatRequirementPhaseBackground({
-  userId,
-  organizationId,
-  packId,
-  runId,
-}) {
-  void userId;
-  const startedAt = Date.now();
-  let pack = await RequirementPack.findOne({ _id: packId, organizationId });
-  if (!pack) {
-    return { ok: false, error: 'PACK_NOT_FOUND' };
-  }
-
-  let container = ensureAiAnalysisContainer(pack.aiAnalysis);
-  container = patchPhaseWhat(container, {
-    status: 'failed',
-    remoteRunId: runId || container.phaseRuns?.phase_what?.remoteRunId || null,
-    finishedAt: new Date().toISOString(),
-    durationMs: Math.max(0, Date.now() - startedAt),
-    error: {
-      code: 'JOB_BY_JOB_REMOVED',
-      message: 'Legacy WHAT job loop removed — use phase_what FR via phase-run',
-    },
-  });
-  pack.aiAnalysis = container;
-  pack.aiAnalysisStatus = 'failed';
-  pack.markModified('aiAnalysis');
-  await pack.save();
-  return { ok: false, error: 'JOB_BY_JOB_REMOVED' };
-}
-
-/**
- * Start WHAT phase — removed job-by-job loop (RULE-JJ-01).
- * Use startPhaseAiPlanningRun({ phase: 'what' }) / phase-run instead.
- */
-async function startWhatRequirementPhase({
-  userId,
-  organizationId,
-  packId,
-  force = false,
-}) {
-  void userId;
-  void organizationId;
-  void packId;
-  void force;
-  if (!isHitlAutoWhatEnabled()) {
-    const err = new Error('HITL auto WHAT is disabled (HITL_AUTO_WHAT=0)');
-    err.statusCode = 503;
-    err.errorCode = 'HITL_AUTO_WHAT_DISABLED';
-    throw err;
-  }
-  const err = new Error(
-    'Legacy auto WHAT job loop removed — use phase_what via POST …/ai-analysis/phase-run'
-  );
-  err.statusCode = 410;
-  err.errorCode = 'JOB_BY_JOB_REMOVED';
-  throw err;
-}
-
-/**
  * Understanding prepare only (hướng B Wave 1): prefill + intakeCorpus + snapshot + tools.
  * Does NOT run LLM WHAT jobs or materialize artifacts as baseline.
  */
@@ -744,12 +662,7 @@ async function prepareUnderstandingOnly({ userId, organizationId, packId }) {
 }
 
 module.exports = {
-  isHitlAutoWhatEnabled,
-  isAutoWhatConfirmEnabled,
-  getWhatJobOrder,
   loadInputDocumentsForPack,
-  startWhatRequirementPhase,
-  runWhatRequirementPhaseBackground,
   materializeWhatToArtifacts,
   rebuildRequirementToolsAfterMaterialize,
   prepareIntakeCorpusAndPrefill,

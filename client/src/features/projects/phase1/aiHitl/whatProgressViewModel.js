@@ -71,6 +71,9 @@ const LEGACY_NODE_TO_SUBSTEP = Object.freeze({
   preparewhat: 'prepare',
   gate_preview: 'quality',
   gate: 'quality',
+  metaGate: 'meta_gate',
+  metagate: 'meta_gate',
+  // Legacy node id
   finalizeMeta: 'meta_gate',
   finalizemeta: 'meta_gate',
 });

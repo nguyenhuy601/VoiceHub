@@ -1,5 +1,5 @@
 /**
- * Immutable HOW artifact revision (WBS / dependency / risk / quality / schedule).
+ * Immutable artifact revision (HOW planning + WHAT requirements.fr).
  * Append-only — never mutate content in place.
  */
 
@@ -12,6 +12,7 @@ const ARTIFACT_KINDS = Object.freeze([
   'quality',
   'schedule',
   'plan',
+  'fr',
 ]);
 
 const ORIGINS = Object.freeze({
@@ -129,12 +130,100 @@ function getRevisionById(container, kind, revisionId) {
   return list.find((r) => r && r.revisionId === revisionId) || null;
 }
 
+/**
+ * Snapshot FR rows for a revision content blob (WHAT).
+ * Prefer srsProposal.generated.functionalRequirements; fall back to pack FR list.
+ * @param {object} container
+ * @param {object|null} [srsProposal]
+ */
+function extractFrContent(container = {}, srsProposal = null) {
+  const proposal =
+    (srsProposal && typeof srsProposal === 'object' ? srsProposal : null) ||
+    container?.analyses?.srsProposal ||
+    container?.srsProposal ||
+    null;
+  let items = Array.isArray(proposal?.generated?.functionalRequirements?.items)
+    ? proposal.generated.functionalRequirements.items
+    : [];
+  if (!items.length) {
+    const packFr = Array.isArray(container?.pack?.functionalRequirements)
+      ? container.pack.functionalRequirements
+      : Array.isArray(container?.functionalRequirements)
+        ? container.functionalRequirements
+        : [];
+    items = packFr;
+  }
+  const rows = items.map((row, index) => ({
+    id: row?.id || row?.logicalId || row?.frId || row?.externalId || `fr-${index + 1}`,
+    title: row?.title || row?.name || null,
+    description: row?.description || row?.statement || null,
+    acceptanceCriteria: row?.acceptanceCriteria || row?.ac || null,
+    priority: row?.priority || null,
+    epicId: row?.epicId || row?.epic || null,
+  }));
+  return {
+    items: rows,
+    frCount: rows.length,
+    proposalVersion: proposal?.proposalVersion ?? null,
+    generationId: proposal?.generationId || null,
+  };
+}
+
+/**
+ * Append revision into container.requirements.revisions[kind] (WHAT FR — not planning.*).
+ * @param {object} container
+ * @param {object} revision
+ */
+function appendRequirementsArtifactRevision(container, revision) {
+  const base = container && typeof container === 'object' ? { ...container } : {};
+  const requirements = { ...(base.requirements || {}) };
+  const revisions = { ...(requirements.revisions || {}) };
+  const kind = revision.kind;
+  const list = Array.isArray(revisions[kind]) ? [...revisions[kind]] : [];
+  if (list.some((r) => r && r.revisionId === revision.revisionId)) {
+    requirements.revisions = revisions;
+    base.requirements = requirements;
+    return base;
+  }
+  const prevCurrent = list.map((r) =>
+    r && r.status === 'current' ? { ...r, status: 'superseded' } : r
+  );
+  prevCurrent.push({ ...revision, status: 'current' });
+  revisions[kind] = prevCurrent;
+  requirements.revisions = revisions;
+  requirements.currentRevisionIds = {
+    ...(requirements.currentRevisionIds || {}),
+    [kind]: revision.revisionId,
+  };
+  base.requirements = requirements;
+  return base;
+}
+
+function getCurrentRequirementsRevisionId(container, kind) {
+  const fromMap = container?.requirements?.currentRevisionIds?.[kind];
+  if (fromMap) return String(fromMap);
+  const list = container?.requirements?.revisions?.[kind];
+  if (!Array.isArray(list) || !list.length) return null;
+  const current = [...list].reverse().find((r) => r && r.status === 'current');
+  return current?.revisionId || list[list.length - 1]?.revisionId || null;
+}
+
+function getRequirementsRevisionById(container, kind, revisionId) {
+  const list = container?.requirements?.revisions?.[kind];
+  if (!Array.isArray(list)) return null;
+  return list.find((r) => r && r.revisionId === revisionId) || null;
+}
+
 module.exports = {
   ARTIFACT_KINDS,
   ORIGINS,
   buildArtifactRevision,
   extractWbsContent,
+  extractFrContent,
   appendArtifactRevision,
+  appendRequirementsArtifactRevision,
   getCurrentRevisionId,
+  getCurrentRequirementsRevisionId,
   getRevisionById,
+  getRequirementsRevisionById,
 };

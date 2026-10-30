@@ -102,11 +102,78 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
         frOpts,
       };
     }
+    // Wave 1: bind all CR as required + retrieve supplement (2-step RAG)
+    let taskContextPackage = opts.contextPackage || null;
+    try {
+      const { assembleTaskContext } = require('../retrieval/preparePhaseRagContext');
+      const crIds = crIntake
+        .map((r) => String(r?.externalId || r?.id || r?.sourceId || '').trim())
+        .filter(Boolean);
+      const taskCtx = await assembleTaskContext({
+        phase: 'what',
+        snapshot: opts.snapshot,
+        snapshotId: opts.snapshot?.snapshotId || opts.snapshotId,
+        pack: packIn,
+        corpus: opts.corpus,
+        sourceIds: crIds,
+        rows: crIntake,
+        taskPurpose: 'cr_to_fr',
+        contextPackage: opts.contextPackage,
+        retrievalStatus: opts.contextPackage?.retrievalStatus,
+        requireEvidence: true,
+        enableAgentic: opts.enableAgentic === true,
+        decideRetrieveMoreFn:
+          opts.decideRetrieveMoreFn ||
+          (opts.enableAgentic === true && opts.generateJsonFn
+            ? async ({ contextPackage: cp, missingInformation, round }) => {
+                const out = await opts.generateJsonFn({
+                  system:
+                    'You decide if more retrieval is needed for requirement analysis. Return JSON only.',
+                  user: JSON.stringify({
+                    decision_options: [
+                      'retrieve_more',
+                      'generate',
+                      'clarify',
+                      'stop_incomplete',
+                    ],
+                    citations: (cp?.citations || []).slice(0, 8),
+                    missingInformation,
+                    round,
+                  }),
+                });
+                return typeof out === 'string' ? JSON.parse(out) : out;
+              }
+            : undefined),
+        env,
+      });
+      taskContextPackage = taskCtx.contextPackage;
+      frOpts.contextPackage = taskContextPackage;
+      frOpts.ragPreCheck = taskCtx.preCheck;
+      if (taskCtx.preCheck && taskCtx.preCheck.canGenerate === false) {
+        if (taskContextPackage?.inputTooLarge) {
+          return {
+            failClosed: failClosedProposedFr('input_too_large', {
+              splitSuggested: taskContextPackage.splitSuggested,
+            }),
+            snapshot,
+            pack,
+            proposedById,
+            frFromCrMeta,
+            frFromCrEpics,
+            frFromCrBacklogStructure,
+            frOpts,
+          };
+        }
+      }
+    } catch (ragErr) {
+      console.warn('[runFrSemanticTask] assembleTaskContext', ragErr?.message || ragErr);
+    }
     const proposed = await proposeFrFromCrWithLlm({
       pack: packIn,
       snapshot: opts.snapshot,
       env,
       generateJsonFn: opts.generateJsonFn,
+      contextPackage: taskContextPackage,
     });
     frFromCrMeta = proposed.meta || null;
     if (!proposed.ok || !Array.isArray(proposed.items) || !proposed.items.length) {
@@ -123,6 +190,31 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
         frFromCrBacklogStructure,
         frOpts,
       };
+    }
+    // Wave 2: post-generate citation check (soft — records status, does not fail-closed yet)
+    try {
+      const { postGenerateOutputCheck } = require('../retrieval/postGenerateOutputCheck');
+      const allowed = new Set([
+        ...crIntake.map((r) => String(r?.externalId || r?.id || '').trim()).filter(Boolean),
+        ...((taskContextPackage?.citations || []).map((c) => String(c.sourceId || '').trim())),
+      ]);
+      const postCheck = postGenerateOutputCheck({
+        output: { items: proposed.items },
+        allowedSourceIds: allowed,
+        requiredSourceIds: crIntake
+          .map((r) => String(r?.externalId || r?.id || '').trim())
+          .filter(Boolean),
+      });
+      frFromCrMeta = { ...(frFromCrMeta || {}), postGenerateCheck: postCheck };
+      if (taskContextPackage) {
+        taskContextPackage = {
+          ...taskContextPackage,
+          postGenerateCheck: postCheck,
+        };
+        frOpts.contextPackage = taskContextPackage;
+      }
+    } catch (postErr) {
+      console.warn('[runFrSemanticTask] postGenerateOutputCheck', postErr?.message || postErr);
     }
     const overlaid = overlayAnalyzedFr(opts.snapshot, packIn, proposed.items);
     snapshot = overlaid.snapshot;

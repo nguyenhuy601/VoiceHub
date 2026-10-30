@@ -12,7 +12,6 @@ const {
   previousUserJob,
   userJobsAfter,
 } = require('../../constants/aiAnalysisJobs.constants');
-const { buildRequirementAnalysisGapPreview } = require('./gapPreview');
 const {
   migrateAiAnalysisJobsV1ToV2,
   needsJobMigration,
@@ -524,17 +523,6 @@ function summarizeAiAnalysis(container) {
 }
 
 /**
- * Allowlisted wizard DTO per job — no full FR / no sibling job payloads.
- */
-function buildWizardJobDto(container, job) {
-  const err = new Error('Wizard per-job DTO removed — use phase summary / phaseRuns');
-  err.statusCode = 410;
-  err.errorCode = 'JOB_BY_JOB_REMOVED';
-  err.details = { job };
-  throw err;
-}
-
-/**
  * Matching must not carry assignments; scheduleCapacity must not overwrite shortlist via edits.
  */
 function assertMatchingAssignmentSeparation(job, edits) {
@@ -648,7 +636,6 @@ module.exports = {
   assertCapabilityConfirmable,
   markJobsStaleAfter,
   summarizeAiAnalysis,
-  buildWizardJobDto,
   assertMatchingAssignmentSeparation,
   applyJobEdits,
   markJobReadyStub,
